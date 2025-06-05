@@ -1,12 +1,19 @@
 package main
 
 import (
+	"bufio"
 	"io"
 	"log"
 	"net"
+	"strings"
+
+	"github.com/linxGnu/grocksdb"
 )
 
+var Db *grocksdb.DB
+
 func main() {
+	InitDb()
 	port := ":8008"
 	lis, err := net.Listen("tcp", port)
 	if err != nil {
@@ -28,19 +35,17 @@ func main() {
 
 func handleConnection(conn net.Conn) {
 	defer conn.Close()
-	buffer := make([]byte, 1024)
+	reader := bufio.NewReader(conn)
+	// buffer := make([]byte, 1024)
 	for {
-		n, err := conn.Read(buffer)
+		line, err := reader.ReadString('\n')
 		if err != nil {
 			if err != io.EOF {
 				log.Printf("Reading err: %s", err.Error())
 			}
 			break
 		}
-		_, writeErr := conn.Write(buffer[0:n])
-		if writeErr != nil {
-			log.Printf("Write error: %v\n", writeErr)
-			break
-		}
+
+		handleCommand(strings.TrimSpace(line), conn)
 	}
 }
