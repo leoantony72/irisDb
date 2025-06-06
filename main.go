@@ -7,21 +7,27 @@ import (
 	"net"
 	"strings"
 
-	"github.com/linxGnu/grocksdb"
+	"iris/engine"
 )
 
-var Db *grocksdb.DB
+
 
 func main() {
-	InitDb()
+	IrisDb, err := engine.NewEngine()
+	if err != nil {
+		log.Fatalf("Failed to init Pebble DB: %v", err)
+	}
+	defer IrisDb.Close()
+
+
 	port := ":8008"
 	lis, err := net.Listen("tcp", port)
 	if err != nil {
-		log.Fatalf("Coudn't start Serpicodb at port:%s, err: %s \n", port, err.Error())
+		log.Fatalf("Coudn't start Irisdb at port:%s, err: %s \n", port, err.Error())
 		//exits
 	}
 	defer lis.Close()
-	log.Printf("SerpicoDb started at port:%s \n", port)
+	log.Printf("IrisDb started at port:%s \n", port)
 
 	for {
 		conn, err := lis.Accept()
@@ -29,11 +35,11 @@ func main() {
 			log.Printf("Coudn't accept connection, err:%s\n", err.Error())
 			continue
 		}
-		go handleConnection(conn)
+		go handleConnection(conn, IrisDb)
 	}
 }
 
-func handleConnection(conn net.Conn) {
+func handleConnection(conn net.Conn, db *engine.Engine) {
 	defer conn.Close()
 	reader := bufio.NewReader(conn)
 	// buffer := make([]byte, 1024)
@@ -46,6 +52,6 @@ func handleConnection(conn net.Conn) {
 			break
 		}
 
-		handleCommand(strings.TrimSpace(line), conn)
+		db.HandleCommand(strings.TrimSpace(line), conn)
 	}
 }
