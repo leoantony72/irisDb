@@ -58,10 +58,10 @@ func (e *Engine) HandleCommand(cmd string, conn net.Conn) {
 				return
 			}
 			data, closer, err := e.Db.Get([]byte(parts[1]))
-			if err != nil{
-				if err == pebble.ErrNotFound{
+			if err != nil {
+				if err == pebble.ErrNotFound {
 					conn.Write([]byte("NOTFOUND\n"))
-				}else{
+				} else {
 					errMsg := fmt.Sprintf("ERR read failed: %s\n", err.Error())
 					conn.Write([]byte(errMsg))
 				}
@@ -69,6 +69,21 @@ func (e *Engine) HandleCommand(cmd string, conn net.Conn) {
 			}
 			defer closer.Close()
 			conn.Write(append(data, '\n'))
+		}
+	case "DEL":
+		{
+			if len(parts) != 2 {
+				conn.Write([]byte("ERR usage: DEL KEY \n"))
+				return
+			}
+
+			err := e.Db.Delete([]byte(parts[1]), pebble.Sync)
+			if err != nil {
+				errMsg := fmt.Sprintf("ERR delete failed: %s\n", err.Error())
+				conn.Write([]byte(errMsg))
+			} else {
+				conn.Write([]byte("OK\n"))
+			}
 		}
 	}
 }
