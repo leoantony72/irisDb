@@ -8,9 +8,23 @@ import (
 	"strings"
 
 	"iris/engine"
+	"iris/ring"
 )
 
+type Server struct {
+	ServerName       string
+	ServerGroup      string
+	Groups           []string
+	InternalHashRing ring.HashRing
+	HashRing         []ring.HashRing
+	//bloom filter
+	//bloom filter for each region ['region A','region B','region C']
+}
 
+func NewServer(name string) {
+	node := Server{ServerName: name}
+
+}
 
 func main() {
 	IrisDb, err := engine.NewEngine()
@@ -18,7 +32,6 @@ func main() {
 		log.Fatalf("Failed to init Pebble DB: %v", err)
 	}
 	defer IrisDb.Close()
-
 
 	port := ":8008"
 	lis, err := net.Listen("tcp", port)
