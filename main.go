@@ -2,7 +2,6 @@ package main
 
 import (
 	"bufio"
-	"errors"
 	"io"
 	"log"
 	"net"
@@ -11,32 +10,8 @@ import (
 	"iris/engine"
 )
 
-type Node struct {
-	ServerID string
-	Addr     string
-}
+var Peers []*Node
 
-type Metadata struct {
-	RangeMap map[string]string
-}
-type Server struct {
-	ServerID string
-	Addr     string
-	N        int
-	Nnode    int
-	Nodes    []*Node
-	Metadata string
-}
-
-func NewServer(name string) {
-	ip, err := GetLocalIp()
-	if err != nil {
-		log.Fatalf("Coudn't Configure the Database")
-	}
-	addr := ip + ":8008"
-	node := Server{ServerID: name, Addr: addr, N: 16384}
-
-}
 
 func main() {
 	IrisDb, err := engine.NewEngine()
