@@ -2,27 +2,39 @@ package main
 
 import (
 	"bufio"
+	"errors"
 	"io"
 	"log"
 	"net"
 	"strings"
 
 	"iris/engine"
-	"iris/ring"
 )
 
+type Node struct {
+	ServerID string
+	Addr     string
+}
+
+type Metadata struct {
+	RangeMap map[string]string
+}
 type Server struct {
-	ServerName       string
-	ServerGroup      string
-	Groups           []string
-	InternalHashRing ring.HashRing
-	HashRing         []ring.HashRing
-	//bloom filter
-	//bloom filter for each region ['region A','region B','region C']
+	ServerID string
+	Addr     string
+	N        int
+	Nnode    int
+	Nodes    []*Node
+	Metadata string
 }
 
 func NewServer(name string) {
-	node := Server{ServerName: name}
+	ip, err := GetLocalIp()
+	if err != nil {
+		log.Fatalf("Coudn't Configure the Database")
+	}
+	addr := ip + ":8008"
+	node := Server{ServerID: name, Addr: addr, N: 16384}
 
 }
 
