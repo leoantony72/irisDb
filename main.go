@@ -8,26 +8,28 @@ import (
 	"strings"
 
 	"iris/engine"
+
+	"github.com/google/uuid"
 )
 
 var Peers []*Node
 
-
 func main() {
+	ID := uuid.New()
+	server := NewServer(ID.String())
 	IrisDb, err := engine.NewEngine()
 	if err != nil {
 		log.Fatalf("Failed to init Pebble DB: %v", err)
 	}
 	defer IrisDb.Close()
 
-	port := ":8008"
-	lis, err := net.Listen("tcp", port)
+	lis, err := net.Listen("tcp", server.Port)
 	if err != nil {
-		log.Fatalf("Coudn't start Irisdb at port:%s, err: %s \n", port, err.Error())
+		log.Fatalf("Coudn't start Irisdb at port:%s, err: %s \n", server.Port, err.Error())
 		//exits
 	}
 	defer lis.Close()
-	log.Printf("IrisDb started at port:%s \n", port)
+	log.Printf("IrisDb started at port:%s \n", server.Port)
 
 	for {
 		conn, err := lis.Accept()
