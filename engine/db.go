@@ -6,6 +6,8 @@ import (
 	"net"
 	"strings"
 
+	"iris/config"
+
 	"github.com/cockroachdb/pebble"
 )
 
@@ -29,7 +31,7 @@ func (e *Engine) Close() {
 	}
 }
 
-func (e *Engine) HandleCommand(cmd string, conn net.Conn) {
+func (e *Engine) HandleCommand(cmd string, conn net.Conn, server *config.Server) {
 	parts := strings.Fields(cmd)
 	if len(parts) == 0 {
 		conn.Write([]byte("ERR empty command\n"))

@@ -7,16 +7,17 @@ import (
 	"net"
 	"strings"
 
+	"iris/config"
 	"iris/engine"
 
 	"github.com/google/uuid"
 )
 
-var Peers []*Node
+var Peers []*config.Node
 
 func main() {
 	ID := uuid.New()
-	server := NewServer(ID.String())
+	server := config.NewServer(ID.String())
 	IrisDb, err := engine.NewEngine()
 	if err != nil {
 		log.Fatalf("Failed to init Pebble DB: %v", err)
@@ -37,11 +38,11 @@ func main() {
 			log.Printf("Coudn't accept connection, err:%s\n", err.Error())
 			continue
 		}
-		go handleConnection(conn, IrisDb)
+		go handleConnection(conn, IrisDb, server)
 	}
 }
 
-func handleConnection(conn net.Conn, db *engine.Engine) {
+func handleConnection(conn net.Conn, db *engine.Engine, server *config.Server) {
 	defer conn.Close()
 	reader := bufio.NewReader(conn)
 	// buffer := make([]byte, 1024)
@@ -54,6 +55,6 @@ func handleConnection(conn net.Conn, db *engine.Engine) {
 			break
 		}
 
-		db.HandleCommand(strings.TrimSpace(line), conn)
+		db.HandleCommand(strings.TrimSpace(line), conn, server)
 	}
 }

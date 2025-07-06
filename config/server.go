@@ -1,6 +1,9 @@
-package main
+package config
 
-import "log"
+import (
+	"iris/utils"
+	"log"
+)
 
 type Node struct {
 	ServerID string
@@ -23,14 +26,13 @@ type Server struct {
 }
 
 func NewServer(name string) *Server {
-	ip, err := GetLocalIp()
+	ip, err := utils.GetLocalIp()
 	if err != nil {
 		log.Fatalf("Coudn't Configure the Database")
 	}
 	addr := ip + ":8008"
 
 	metadata := Metadata{RangeMap: make([]*Node, 16384)}
-	Peers = append(Peers, &Node{ServerID: name, Addr: addr})
-	node := Server{ServerID: name, Addr: addr, N: 16384, Metadata: &metadata, Port: "8008", Host: ip, BusPort: "18008"}
+	node := Server{ServerID: name, Addr: addr, N: 16384, Metadata: &metadata, Port: "8008", Host: ip, BusPort: "18008", Nodes: make([]*Node, 500)}
 	return &node
 }
