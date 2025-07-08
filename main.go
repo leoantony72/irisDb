@@ -24,7 +24,7 @@ func main() {
 	}
 	defer IrisDb.Close()
 
-	lis, err := net.Listen("tcp", server.Port)
+	lis, err := net.Listen("tcp", ":"+server.Port)
 	if err != nil {
 		log.Fatalf("Coudn't start Irisdb at port:%s, err: %s \n", server.Port, err.Error())
 		//exits
