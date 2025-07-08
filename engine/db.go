@@ -48,7 +48,7 @@ func (e *Engine) HandleCommand(cmd string, conn net.Conn, server *config.Server)
 				return
 			}
 			hash := utils.CalculateCRC16([]byte(parts[1]))
-			master_slot := FindNodeIDX(*server, hash)
+			master_slot := FindNodeIDX(*server, hash%server.N)
 
 			//check if the server is the master node for this slot(hash)
 			if server.Metadata[master_slot].Nodes[0].ServerID == server.ServerID {
@@ -64,7 +64,7 @@ func (e *Engine) HandleCommand(cmd string, conn net.Conn, server *config.Server)
 				replica_server := server.Metadata[master_slot].Nodes[1:]
 				fmt.Println("Replication Nodes:", replica_server)
 			} else {
-				// @leoantony72 forward the req to the master node 
+				// @leoantony72 forward the req to the master node
 				// (masternode = server.Metadata[master_slot].Nodes[0])
 			}
 
