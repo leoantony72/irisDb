@@ -2,7 +2,11 @@ module iris
 
 go 1.22.4
 
-require github.com/cockroachdb/pebble v1.1.5
+require (
+	github.com/cockroachdb/pebble v1.1.5
+	github.com/google/uuid v1.6.0
+	github.com/howeyc/crc16 v0.0.0-20171223171357-2b2a61e366a6
+)
 
 require (
 	github.com/DataDog/zstd v1.4.5 // indirect
@@ -17,8 +21,6 @@ require (
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang/protobuf v1.5.3 // indirect
 	github.com/golang/snappy v0.0.4 // indirect
-	github.com/google/uuid v1.6.0 // indirect
-	github.com/howeyc/crc16 v0.0.0-20171223171357-2b2a61e366a6 // indirect
 	github.com/klauspost/compress v1.16.0 // indirect
 	github.com/kr/pretty v0.3.1 // indirect
 	github.com/kr/text v0.2.0 // indirect

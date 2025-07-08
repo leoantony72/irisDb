@@ -35,7 +35,7 @@ func NewServer(name string) *Server {
 	}
 	addr := ip + ":8008"
 
-	node := Server{ServerID: name, Addr: addr, N: 16384, Metadata: make([]*SlotRange, 10), Port: "8008", Host: ip, BusPort: "18008", Nodes: make([]*Node, 500)}
+	node := Server{ServerID: name, Addr: addr, N: 16384, Port: "8008", Host: ip, BusPort: "18008", Nodes: make([]*Node, 500)}
 	// @leoantony72 this should be updated to read from the config file or from argument
 	node.Metadata = append(node.Metadata, &SlotRange{Start: 0, End: 16383, Nodes: []*Node{{ServerID: name, Addr: addr}}})
 	return &node

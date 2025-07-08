@@ -48,7 +48,7 @@ func (e *Engine) HandleCommand(cmd string, conn net.Conn, server *config.Server)
 				return
 			}
 			hash := utils.CalculateCRC16([]byte(parts[1]))
-			master_slot := FindNodeIDX(*server, hash%server.N)
+			master_slot := FindNodeIDX(server, hash%server.N)
 
 			//check if the server is the master node for this slot(hash)
 			if server.Metadata[master_slot].Nodes[0].ServerID == server.ServerID {
@@ -106,11 +106,12 @@ func (e *Engine) HandleCommand(cmd string, conn net.Conn, server *config.Server)
 	}
 }
 
-func FindNodeIDX(s config.Server, hash uint16) int {
-
+func FindNodeIDX(s *config.Server, hash uint16) int {
+	fmt.Println("len:",len(s.Metadata))
 	idx := sort.Search(len(s.Metadata), func(i int) bool {
 		return s.Metadata[i].End >= hash
 	})
+	fmt.Println("hash:",hash, idx)
 
 	return idx
 }
