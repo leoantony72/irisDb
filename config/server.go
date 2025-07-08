@@ -10,18 +10,21 @@ type Node struct {
 	Addr     string
 }
 
-type Metadata struct {
-	RangeMap []*Node
+type SlotRange struct {
+	Start uint16
+	End   uint16
+	Nodes []*Node //list of master nodes
 }
+
 type Server struct {
 	ServerID string
 	Host     string
 	Addr     string
 	Port     string
-	N        int //hosh slots 2^14
-	Nnode    int
-	Nodes    []*Node
-	Metadata *Metadata
+	N        uint16       //hosh slots 2^14
+	Nnode    uint16       //number of nodes
+	Nodes    []*Node      //list of connected nodes
+	Metadata []*SlotRange //hash slots
 	BusPort  string
 }
 
@@ -32,7 +35,6 @@ func NewServer(name string) *Server {
 	}
 	addr := ip + ":8008"
 
-	metadata := Metadata{RangeMap: make([]*Node, 16384)}
-	node := Server{ServerID: name, Addr: addr, N: 16384, Metadata: &metadata, Port: "8008", Host: ip, BusPort: "18008", Nodes: make([]*Node, 500)}
+	node := Server{ServerID: name, Addr: addr, N: 16384, Metadata: make([]*SlotRange, 10), Port: "8008", Host: ip, BusPort: "18008", Nodes: make([]*Node, 500)}
 	return &node
 }

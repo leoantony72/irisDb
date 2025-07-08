@@ -15,7 +15,7 @@ func NewBusRoute(port string) {
 	}
 
 	for {
-		conn, err := lis.Accept()
+		_, err := lis.Accept()
 		if err != nil {
 			log.Printf("Coudn't accept connection, err:%s\n", err.Error())
 			continue
@@ -28,7 +28,7 @@ func handleConnection(conn net.Conn) {
 	reader := bufio.NewReader(conn)
 	// buffer := make([]byte, 1024)
 	for {
-		line, err := reader.ReadString('\n')
+		_, err := reader.ReadString('\n')
 		if err != nil {
 			if err != io.EOF {
 				log.Printf("Reading err: %s", err.Error())

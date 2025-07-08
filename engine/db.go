@@ -4,9 +4,11 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"sort"
 	"strings"
 
 	"iris/config"
+	"iris/utils"
 
 	"github.com/cockroachdb/pebble"
 )
@@ -45,13 +47,27 @@ func (e *Engine) HandleCommand(cmd string, conn net.Conn, server *config.Server)
 				conn.Write([]byte("ERR usage: SET KEY value\n"))
 				return
 			}
-			err := e.Db.Set([]byte(parts[1]), []byte(parts[2]), pebble.Sync)
-			if err != nil {
-				errMsg := fmt.Sprintf("ERR write failed: %s\n", err.Error())
-				conn.Write([]byte(errMsg))
+			hash := utils.CalculateCRC16([]byte(parts[1]))
+			master_slot := FindNodeIDX(*server, hash)
+
+			//check if the server is the master node for this slot(hash)
+			if server.Metadata[master_slot].Nodes[0].ServerID == server.ServerID {
+				err := e.Db.Set([]byte(parts[1]), []byte(parts[2]), pebble.Sync)
+				if err != nil {
+					errMsg := fmt.Sprintf("ERR write failed: %s\n", err.Error())
+					conn.Write([]byte(errMsg))
+				} else {
+					conn.Write([]byte("OK\n"))
+				}
+
+				// @leoantony72 send the data to the replica nodes through the bus port
+				replica_server := server.Metadata[master_slot].Nodes[1:]
+				fmt.Println("Replication Nodes:", replica_server)
 			} else {
-				conn.Write([]byte("OK\n"))
+				// @leoantony72 forward the req to the master node 
+				// (masternode = server.Metadata[master_slot].Nodes[0])
 			}
+
 		}
 	case "GET":
 		{
@@ -88,4 +104,13 @@ func (e *Engine) HandleCommand(cmd string, conn net.Conn, server *config.Server)
 			}
 		}
 	}
+}
+
+func FindNodeIDX(s config.Server, hash uint16) int {
+
+	idx := sort.Search(len(s.Metadata), func(i int) bool {
+		return s.Metadata[i].End >= hash
+	})
+
+	return idx
 }
