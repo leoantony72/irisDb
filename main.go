@@ -9,6 +9,7 @@ import (
 
 	"iris/config"
 	"iris/engine"
+	"iris/bus"
 
 	"github.com/google/uuid"
 )
@@ -32,6 +33,7 @@ func main() {
 	defer lis.Close()
 	log.Printf("IrisDb started at port:%s \n", server.Port)
 
+	go bus.NewBusRoute(server)
 	for {
 		conn, err := lis.Accept()
 		if err != nil {
