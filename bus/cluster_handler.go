@@ -2,6 +2,7 @@ package bus
 
 import (
 	// "crypto/rand"
+	"errors"
 	"fmt"
 	"iris/config"
 	"math/rand"
@@ -26,8 +27,13 @@ func HandleClusterCommand(cmd string, conn net.Conn, s *config.Server) {
 			}
 			ip := conn.RemoteAddr().String()
 			ServerID := parts[1]
+			idx, startRange, EndRange := determineRange(s)
+			modifiedNode := s.Nodes[idx]
+
+			newNode := config.Node{ServerID: ServerID, Addr: ip}
 
 			//send to all the existing server with 2phase commit
+			prepareSuccess, err := cordinator(&newNode, startRange, EndRange, modifiedNode, s)
 
 			//if success
 		}
@@ -35,34 +41,37 @@ func HandleClusterCommand(cmd string, conn net.Conn, s *config.Server) {
 	}
 }
 
-func determineRange(s *config.Server) {
+func determineRange(s *config.Server) (int, uint16, uint16) {
 	newRangeStart := uint16(0)
 	newRangeEnd := uint16(0)
 	idx := rand.Intn(len(s.Metadata))
 	if len(s.Nodes) == 0 {
-		newRangeStart = s.N / 2
+		newRangeStart = (s.N / 2) + 1
 		newRangeEnd = s.N
 	} else {
 		newRangeStart = (s.Metadata[idx].End / 2) + 1
 		newRangeEnd = s.Metadata[idx].End
 	}
 
-	s.Metadata[idx].End = newRangeStart - 1
+	return idx, newRangeStart, newRangeEnd
 }
 
-func cordinator(new *config.Node, s *config.Server) {
+func cordinator(new *config.Node, start uint16, end uint16, mod *config.Node, s *config.Server) (bool, error) {
 	for _, node := range s.Nodes {
 		conn, err := net.DialTimeout("tcp", node.Addr, 1*time.Second)
 		if err != nil {
-			// return "", log.Fatalln("failed to connect to peer %s: %w", node.Addr, err.Error())
+			msg := fmt.Sprintf("failed to connect to peer(ID:%s) %s: %w", node.ServerID, node.Addr, err)
+			return false, errors.New(msg)
 		}
 		defer conn.Close()
 
-		// PREPARE SERVERID ADDR START END
-		message := fmt.Sprintf("PREPARE %s %s %s %s", new.ServerID, new.Addr, "0", "150")
+		// PREPARE SERVERID ADDR START END MODIFIED_SERVERID
+		message := fmt.Sprintf("PREPARE %s %s %d %d %s", new.ServerID, new.Addr, start, end, mod.ServerID)
 		_, err = conn.Write([]byte(message + "\n"))
 		if err != nil {
-			// return "", fmt.Errorf("failed to write to peer %s: %w", address, err)
+			msg := fmt.Sprintf("failed to write to peer(ID:%s) %s: %w", node.ServerID, node.Addr, err)
+			return false, errors.New(msg)
 		}
 	}
+	return true, nil
 }
