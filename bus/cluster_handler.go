@@ -7,6 +7,7 @@ import (
 	"iris/config"
 	"math/rand"
 	"net"
+	"strconv"
 	"strings"
 	"time"
 
@@ -66,13 +67,34 @@ func HandleClusterCommand(cmd string, conn net.Conn, s *config.Server) {
 		}
 	case "PREPARE":
 		{
-			if len(parts) != 6 {
-				conn.Write([]byte("ERR usage: PREPARE SERVERID ADDR START END MODIFIED_SERVERID\n"))
+			if len(parts) != 7 {
+				conn.Write([]byte("ERR: Not Enough Arguments\n"))
 				return
 			}
+			start, err := ParseUint16(parts[4])
+			if err != nil {
+				conn.Write([]byte("ERR: Coudn't Parse StartRange\n"))
+				return
+			}
+			end, err := ParseUint16(parts[5])
+			if err != nil {
+				conn.Write([]byte("ERR: Coudn't Parse EndRange\n"))
+				return
+			}
+			s.Prepared[parts[1]] = &config.PrepareMessage{MessageID: parts[1], ServerID: parts[2], Addr: parts[3], Start: start, End: end}
+			msg := fmt.Sprintf("PREPARE SUCCESS %s", parts[1])
+			conn.Write([]byte(msg))
 		}
 
 	}
+}
+
+func ParseUint16(s string) (uint16, error) {
+	n, err := strconv.ParseUint(s, 10, 16)
+	if err != nil {
+		return 0, fmt.Errorf("invalid uint16 value: %v", err)
+	}
+	return uint16(n), nil
 }
 
 func determineRange(s *config.Server) (int, uint16, uint16) {
@@ -108,7 +130,7 @@ func Prepare(new *config.Node, start uint16, end uint16, mod *config.Node, s *co
 			return "", false, errors.New(msg)
 		}
 	}
-	s.Prepared[MessageID] = message
+	s.Prepared[MessageID] = &config.PrepareMessage{MessageID: MessageID, ServerID: new.ServerID, Addr: new.Addr, Start: start, End: end, ModifiedNodeID: mod.ServerID}
 	return MessageID, true, nil
 }
 

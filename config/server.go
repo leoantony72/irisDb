@@ -16,6 +16,16 @@ type SlotRange struct {
 	Nodes []*Node //list of master nodes
 }
 
+// PREPARE MESSAGEID SERVERID ADDR START END MODIFIED_SERVERID
+type PrepareMessage struct {
+	MessageID      string
+	ServerID       string
+	Addr           string
+	Start          uint16
+	End            uint16
+	ModifiedNodeID string
+}
+
 type Server struct {
 	ServerID string
 	Host     string
@@ -26,7 +36,7 @@ type Server struct {
 	Nodes    []*Node      //list of connected nodes
 	Metadata []*SlotRange //hash slots
 	BusPort  string
-	Prepared map[string]string
+	Prepared map[string]*PrepareMessage
 }
 
 func NewServer(name string) *Server {
