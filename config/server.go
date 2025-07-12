@@ -26,6 +26,7 @@ type Server struct {
 	Nodes    []*Node      //list of connected nodes
 	Metadata []*SlotRange //hash slots
 	BusPort  string
+	Prepared map[string]string
 }
 
 func NewServer(name string) *Server {
