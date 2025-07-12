@@ -2,6 +2,7 @@ package bus
 
 import (
 	// "crypto/rand"
+	"bufio"
 	"errors"
 	"fmt"
 	"iris/config"
@@ -83,7 +84,15 @@ func HandleClusterCommand(cmd string, conn net.Conn, s *config.Server) {
 			}
 			s.Prepared[parts[1]] = &config.PrepareMessage{MessageID: parts[1], ServerID: parts[2], Addr: parts[3], Start: start, End: end}
 			msg := fmt.Sprintf("PREPARE SUCCESS %s", parts[1])
-			conn.Write([]byte(msg))
+			conn.Write([]byte(msg + "\n"))
+		}
+
+	case "COMMIT":
+		{
+			if len(parts) != 2 {
+				conn.Write([]byte("ERR: Not Enough Arguments\n"))
+				return
+			}
 		}
 
 	}
@@ -112,26 +121,49 @@ func determineRange(s *config.Server) (int, uint16, uint16) {
 	return idx, newRangeStart, newRangeEnd
 }
 
-func Prepare(new *config.Node, start uint16, end uint16, mod *config.Node, s *config.Server) (string, bool, error) {
-	MessageID := uuid.New().String()
-	message := fmt.Sprintf("PREPARE %s %s %s %d %d %s", MessageID, new.ServerID, new.Addr, start, end, mod.ServerID)
+func Prepare(new *config.Node, start, end uint16, mod *config.Node, s *config.Server) (string, bool, error) {
+	messageID := uuid.New().String()
+	message := fmt.Sprintf("PREPARE %s %s %s %d %d %s\n",
+		messageID, new.ServerID, new.Addr, start, end, mod.ServerID)
+	expectedResp := fmt.Sprintf("PREPARE SUCCESS %s", messageID)
+
 	for _, node := range s.Nodes {
 		conn, err := net.DialTimeout("tcp", node.Addr, time.Second)
 		if err != nil {
-			msg := fmt.Sprintf("failed to connect to peer(ID:%s) %s: %s", node.ServerID, node.Addr, err.Error())
-			return "", false, errors.New(msg)
+			return "", false, fmt.Errorf("failed to connect to peer(ID:%s) %s: %w", node.ServerID, node.Addr, err)
 		}
-		defer conn.Close()
+		conn.SetDeadline(time.Now().Add(2 * time.Second))
 
-		// PREPARE SERVERID ADDR START END MODIFIED_SERVERID
-		_, err = conn.Write([]byte(message + "\n"))
+		_, err = conn.Write([]byte(message))
 		if err != nil {
-			msg := fmt.Sprintf("failed to write to peer(ID:%s) %s: %s", node.ServerID, node.Addr, err.Error())
-			return "", false, errors.New(msg)
+			conn.Close()
+			return "", false, fmt.Errorf("failed to write to peer(ID:%s) %s: %w", node.ServerID, node.Addr, err)
+		}
+
+		reader := bufio.NewReader(conn)
+		resp, err := reader.ReadString('\n')
+		conn.Close()
+		if err != nil {
+			return "", false, fmt.Errorf("failed to read response from peer(ID:%s) %s: %w", node.ServerID, node.Addr, err)
+		}
+
+		if strings.TrimSpace(resp) != expectedResp {
+			return "", false, fmt.Errorf("unexpected response from peer(ID:%s) %s: got %q, expected %q",
+				node.ServerID, node.Addr, strings.TrimSpace(resp), expectedResp)
 		}
 	}
-	s.Prepared[MessageID] = &config.PrepareMessage{MessageID: MessageID, ServerID: new.ServerID, Addr: new.Addr, Start: start, End: end, ModifiedNodeID: mod.ServerID}
-	return MessageID, true, nil
+
+	//adds the Prepare Message to TMP if success
+	s.Prepared[messageID] = &config.PrepareMessage{
+		MessageID:      messageID,
+		ServerID:       new.ServerID,
+		Addr:           new.Addr,
+		Start:          start,
+		End:            end,
+		ModifiedNodeID: mod.ServerID,
+	}
+
+	return messageID, true, nil
 }
 
 func commit(mid string, s *config.Server) (bool, error) {
