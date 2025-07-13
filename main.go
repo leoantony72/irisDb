@@ -12,6 +12,7 @@ import (
 	"iris/bus"
 	"iris/config"
 	"iris/engine"
+	"iris/utils"
 
 	"github.com/google/uuid"
 )
@@ -85,6 +86,32 @@ func joinCluster(addr string, server *config.Server) error {
 	if err != nil {
 		return err
 	}
+
+	reader := bufio.NewReader(conn)
+	responseLine, err := reader.ReadString('\n')
+	if err != nil {
+		return fmt.Errorf("failed to read JOIN response: %v", err)
+	}
+
+	responseLine = strings.TrimSpace(responseLine)
+	parts := strings.Fields(responseLine)
+
+	// Expecting: JOIN_SUCCESS START END
+	if len(parts) != 3 || parts[0] != "JOIN_SUCCESS" {
+		return fmt.Errorf("unexpected JOIN response: %s", responseLine)
+	}
+
+	start, err := utils.ParseUint16(parts[1])
+	if err != nil {
+		return err
+	}
+	end, err := utils.ParseUint16(parts[2])
+	if err != nil {
+		return err
+	}
+
+	server.Metadata[0].Start = start
+	server.Metadata[0].End = end
 
 	log.Printf("Sent JOIN request to %s: %s", addr, strings.TrimSpace(joinMsg))
 	return nil

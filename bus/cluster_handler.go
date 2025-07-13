@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"iris/config"
+	"iris/utils"
 	"math/rand"
 	"net"
 	"strconv"
@@ -64,19 +65,24 @@ func HandleClusterCommand(cmd string, conn net.Conn, s *config.Server) {
 			s.Metadata = append(s.Metadata, &newRange)
 			s.Nodes = append(s.Nodes, &newNode)
 			s.Nnode++
+
+			//JOIN_SUCCESS START END
+			msg := fmt.Sprintf("JOIN_SUCCESS %s %s", strconv.Itoa(int(startRange)), strconv.Itoa(int(EndRange)))
+			conn.Write([]byte(msg))
 		}
+
 	case "PREPARE":
 		{
 			if len(parts) != 7 {
 				conn.Write([]byte("ERR: Not Enough Arguments\n"))
 				return
 			}
-			start, err := ParseUint16(parts[4])
+			start, err := utils.ParseUint16(parts[4])
 			if err != nil {
 				conn.Write([]byte("ERR: Coudn't Parse StartRange\n"))
 				return
 			}
-			end, err := ParseUint16(parts[5])
+			end, err := utils.ParseUint16(parts[5])
 			if err != nil {
 				conn.Write([]byte("ERR: Coudn't Parse EndRange\n"))
 				return
@@ -121,18 +127,10 @@ func HandleClusterCommand(cmd string, conn net.Conn, s *config.Server) {
 			s.Nodes = append(s.Nodes, newNode)
 			s.Nnode++
 
- 			conn.Write([]byte("COMMIT SUCCESS\n"))
+			conn.Write([]byte("COMMIT SUCCESS\n"))
 		}
 
 	}
-}
-
-func ParseUint16(s string) (uint16, error) {
-	n, err := strconv.ParseUint(s, 10, 16)
-	if err != nil {
-		return 0, fmt.Errorf("invalid uint16 value: %v", err)
-	}
-	return uint16(n), nil
 }
 
 func determineRange(s *config.Server) (int, uint16, uint16) {
@@ -226,4 +224,3 @@ func commit(mid string, s *config.Server) (bool, error) {
 	}
 	return true, nil
 }
-
