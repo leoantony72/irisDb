@@ -68,7 +68,7 @@ func HandleClusterCommand(cmd string, conn net.Conn, s *config.Server) {
 
 			//JOIN_SUCCESS START END
 			msg := fmt.Sprintf("JOIN_SUCCESS %s %s", strconv.Itoa(int(startRange)), strconv.Itoa(int(EndRange)))
-			conn.Write([]byte(msg))
+			conn.Write([]byte(msg + "\n"))
 		}
 
 	case "PREPARE":
@@ -87,7 +87,7 @@ func HandleClusterCommand(cmd string, conn net.Conn, s *config.Server) {
 				conn.Write([]byte("ERR: Coudn't Parse EndRange\n"))
 				return
 			}
-			s.Prepared[parts[1]] = &config.PrepareMessage{MessageID: parts[1], ServerID: parts[2], Addr: parts[3], Start: start, End: end}
+			s.Prepared[parts[1]] = &config.PrepareMessage{MessageID: parts[1], ServerID: parts[2], Addr: parts[3], Start: start, End: end, ModifiedNodeID: parts[6]}
 			msg := fmt.Sprintf("PREPARE SUCCESS %s", parts[1])
 			conn.Write([]byte(msg + "\n"))
 		}
@@ -134,16 +134,19 @@ func HandleClusterCommand(cmd string, conn net.Conn, s *config.Server) {
 }
 
 func determineRange(s *config.Server) (int, uint16, uint16) {
-	newRangeStart := uint16(0)
-	newRangeEnd := uint16(0)
 	idx := rand.Intn(len(s.Metadata))
-	if len(s.Nodes) == 0 {
-		newRangeStart = (s.N / 2) + 1
-		newRangeEnd = s.N
-	} else {
-		newRangeStart = (s.Metadata[idx].End / 2) + 1
-		newRangeEnd = s.Metadata[idx].End
+	selected := s.Metadata[idx]
+
+	if selected.End <= selected.Start {
+		return idx, selected.End, selected.End
 	}
+
+	start := selected.Start
+	end := selected.End
+	mid := (start + end) / 2
+
+	newRangeStart := mid + 1
+	newRangeEnd := end
 
 	return idx, newRangeStart, newRangeEnd
 }
@@ -201,7 +204,6 @@ func commit(mid string, s *config.Server) (bool, error) {
 			msg := fmt.Sprintf("failed to connect to peer(ID:%s) %s: %s", node.ServerID, node.Addr, err.Error())
 			return false, errors.New(msg)
 		}
-		defer conn.Close()
 
 		_, err = conn.Write([]byte(msg + "\n"))
 		if err != nil {
@@ -221,6 +223,7 @@ func commit(mid string, s *config.Server) (bool, error) {
 			msg := fmt.Sprintf("unexpected response from peer(ID:%s) %s: %s", node.ServerID, node.Addr, respStr)
 			return false, errors.New(msg)
 		}
+		conn.Close()
 	}
 	return true, nil
 }
