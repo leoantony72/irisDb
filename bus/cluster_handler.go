@@ -134,7 +134,7 @@ func HandleClusterCommand(cmd string, conn net.Conn, s *config.Server) {
 }
 
 func determineRange(s *config.Server) (int, uint16, uint16) {
-	idx := rand.Intn(len(s.Metadata))
+	idx := rand.Intn(len(s.Nodes))
 	selected := s.Metadata[idx]
 
 	if selected.End <= selected.Start {
