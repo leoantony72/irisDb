@@ -34,6 +34,7 @@ func HandleClusterCommand(cmd string, conn net.Conn, s *config.Server) {
 			ServerPort := parts[2]
 			idx, startRange, EndRange := determineRange(s)
 			modifiedNode := s.Nodes[idx]
+			fmt.Println("modNode:", modifiedNode)
 
 			newNode := config.Node{ServerID: ServerID, Addr: ip + ":" + ServerPort}
 
@@ -129,6 +130,13 @@ func HandleClusterCommand(cmd string, conn net.Conn, s *config.Server) {
 
 			conn.Write([]byte("COMMIT SUCCESS\n"))
 		}
+	case "SHOW":
+		{
+			for _, node := range s.Nodes {
+				msg := fmt.Sprintf("ServerID: %s | Addr: %s\n", node.ServerID, node.Addr)
+				conn.Write([]byte(msg))
+			}
+		}
 
 	}
 }
@@ -148,16 +156,22 @@ func determineRange(s *config.Server) (int, uint16, uint16) {
 	newRangeStart := mid + 1
 	newRangeEnd := end
 
+	fmt.Printf("idx,start,end: %d,%d,%d\n", idx, start, end)
+	fmt.Printf("NEW,idx,start,end: %d,%d,%d\n", idx, newRangeStart, newRangeEnd)
 	return idx, newRangeStart, newRangeEnd
 }
 
 func Prepare(new *config.Node, start, end uint16, mod *config.Node, s *config.Server) (string, bool, error) {
 	messageID := uuid.New().String()
+	fmt.Println("everything:", new, mod, start, end)
 	message := fmt.Sprintf("PREPARE %s %s %s %d %d %s\n",
 		messageID, new.ServerID, new.Addr, start, end, mod.ServerID)
 	expectedResp := fmt.Sprintf("PREPARE SUCCESS %s", messageID)
 
 	for _, node := range s.Nodes {
+		if node.ServerID == s.ServerID {
+			continue
+		}
 		conn, err := net.DialTimeout("tcp", node.Addr, time.Second)
 		if err != nil {
 			return "", false, fmt.Errorf("failed to connect to peer(ID:%s) %s: %w", node.ServerID, node.Addr, err)
@@ -199,6 +213,9 @@ func Prepare(new *config.Node, start, end uint16, mod *config.Node, s *config.Se
 func commit(mid string, s *config.Server) (bool, error) {
 	msg := fmt.Sprintf("COMMIT %s", mid)
 	for _, node := range s.Nodes {
+		if node.ServerID == s.ServerID {
+			continue
+		}
 		conn, err := net.DialTimeout("tcp", node.Addr, time.Second)
 		if err != nil {
 			msg := fmt.Sprintf("failed to connect to peer(ID:%s) %s: %s", node.ServerID, node.Addr, err.Error())

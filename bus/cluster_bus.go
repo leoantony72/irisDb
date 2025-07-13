@@ -16,6 +16,8 @@ func NewBusRoute(server *config.Server) {
 		//exits
 	}
 
+	log.Printf("🚀Running BusPort at %s", server.BusPort)
+
 	for {
 		conn, err := lis.Accept()
 		if err != nil {
