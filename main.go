@@ -2,14 +2,16 @@ package main
 
 import (
 	"bufio"
+	"flag"
+	"fmt"
 	"io"
 	"log"
 	"net"
 	"strings"
 
+	"iris/bus"
 	"iris/config"
 	"iris/engine"
-	"iris/bus"
 
 	"github.com/google/uuid"
 )
@@ -17,6 +19,9 @@ import (
 var Peers []*config.Node
 
 func main() {
+	clusterAddr := flag.String("cluster_server", "", "Address of a server in the cluster to join (optional)")
+	flag.Parse()
+
 	ID := uuid.New()
 	server := config.NewServer(ID.String())
 	IrisDb, err := engine.NewEngine()
@@ -32,6 +37,13 @@ func main() {
 	}
 	defer lis.Close()
 	log.Printf("IrisDb started at port:%s \n", server.Port)
+
+	if *clusterAddr != "" {
+		err := joinCluster(*clusterAddr, server)
+		if err != nil {
+			log.Printf("Warning: failed to join cluster at %s: %v", *clusterAddr, err)
+		}
+	}
 
 	go bus.NewBusRoute(server)
 	for {
@@ -59,4 +71,21 @@ func handleConnection(conn net.Conn, db *engine.Engine, server *config.Server) {
 
 		db.HandleCommand(strings.TrimSpace(line), conn, server)
 	}
+}
+
+func joinCluster(addr string, server *config.Server) error {
+	conn, err := net.Dial("tcp", addr)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	joinMsg := fmt.Sprintf("JOIN %s %s\n", server.ServerID, server.Port)
+	_, err = conn.Write([]byte(joinMsg))
+	if err != nil {
+		return err
+	}
+
+	log.Printf("Sent JOIN request to %s: %s", addr, strings.TrimSpace(joinMsg))
+	return nil
 }

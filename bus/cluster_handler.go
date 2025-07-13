@@ -1,7 +1,6 @@
 package bus
 
 import (
-	// "crypto/rand"
 	"bufio"
 	"errors"
 	"fmt"
@@ -26,7 +25,7 @@ func HandleClusterCommand(cmd string, conn net.Conn, s *config.Server) {
 	case "JOIN":
 		{
 			if len(parts) != 3 {
-				conn.Write([]byte("ERR usage: JOIN SERVERID\n"))
+				conn.Write([]byte("ERR usage: JOIN SERVERID PORT\n"))
 				return
 			}
 			ip, _, _ := net.SplitHostPort(conn.RemoteAddr().String())
@@ -93,6 +92,36 @@ func HandleClusterCommand(cmd string, conn net.Conn, s *config.Server) {
 				conn.Write([]byte("ERR: Not Enough Arguments\n"))
 				return
 			}
+
+			key, exists := s.Prepared[parts[1]]
+			if !exists {
+				conn.Write([]byte("ERR: MessageID doesn't exists"))
+				return
+			}
+
+			newNode := &config.Node{ServerID: key.ServerID, Addr: key.Addr}
+			slotRange := &config.SlotRange{Start: key.Start, End: key.End, Nodes: []*config.Node{newNode}}
+
+			//update old range
+			var modifiedRangeIdx = -1
+			for i, slot := range s.Metadata {
+				if len(slot.Nodes) > 0 && slot.Nodes[0].ServerID == key.ModifiedNodeID {
+					modifiedRangeIdx = i
+					break
+				}
+			}
+
+			if modifiedRangeIdx == -1 {
+				conn.Write([]byte("ERR: ModifiedNode SlotRange not found\n"))
+				return
+			}
+
+			s.Metadata[modifiedRangeIdx].End = key.Start - 1
+			s.Metadata = append(s.Metadata, slotRange)
+			s.Nodes = append(s.Nodes, newNode)
+			s.Nnode++
+
+ 			conn.Write([]byte("COMMIT SUCCESS\n"))
 		}
 
 	}
@@ -176,12 +205,25 @@ func commit(mid string, s *config.Server) (bool, error) {
 		}
 		defer conn.Close()
 
-		// COMMIT MESSAGEID
 		_, err = conn.Write([]byte(msg + "\n"))
 		if err != nil {
 			msg := fmt.Sprintf("failed to write to peer(ID:%s) %s: %s", node.ServerID, node.Addr, err.Error())
 			return false, errors.New(msg)
 		}
+
+		response := make([]byte, 1024)
+		n, err := conn.Read(response)
+		if err != nil {
+			msg := fmt.Sprintf("failed to read from peer(ID:%s) %s: %s", node.ServerID, node.Addr, err.Error())
+			return false, errors.New(msg)
+		}
+
+		respStr := strings.TrimSpace(string(response[:n]))
+		if respStr != "COMMIT SUCCESS" {
+			msg := fmt.Sprintf("unexpected response from peer(ID:%s) %s: %s", node.ServerID, node.Addr, respStr)
+			return false, errors.New(msg)
+		}
 	}
 	return true, nil
 }
+

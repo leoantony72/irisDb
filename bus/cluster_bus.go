@@ -10,7 +10,7 @@ import (
 )
 
 func NewBusRoute(server *config.Server) {
-	lis, err := net.Listen("tcp", server.BusPort)
+	lis, err := net.Listen("tcp", ":"+server.BusPort)
 	if err != nil {
 		log.Fatalf("Coudn't start bus at port:%s, err: %s \n", server.BusPort, err.Error())
 		//exits
