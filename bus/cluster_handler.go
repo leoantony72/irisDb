@@ -8,6 +8,7 @@ import (
 	"iris/utils"
 	"math/rand"
 	"net"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -42,30 +43,52 @@ func HandleClusterCommand(cmd string, conn net.Conn, s *config.Server) {
 			// !Prepare Phase
 			mid, prepareSuccess, err := Prepare(&newNode, startRange, EndRange, modifiedNode, s)
 			if err != nil {
-				conn.Write([]byte("ERR: JOIN failed\n"))
+				conn.Write([]byte("ERR: JOIN PREPARE(ERR) failed\n"))
+				fmt.Println("Prepare err:", err.Error())
 				return
 			}
 			if !prepareSuccess {
-				conn.Write([]byte("ERR: JOIN failed\n"))
+				conn.Write([]byte("ERR: JOIN PREPARE failed\n"))
 				return
 			}
 
 			commitSuccess, err := commit(mid, s)
 			if err != nil {
-				conn.Write([]byte("ERR: JOIN failed\n"))
+				conn.Write([]byte("ERR: JOIN COMMIT(ERR) failed\n"))
 				return
 			}
 			if !commitSuccess {
 				delete(s.Prepared, mid)
-				conn.Write([]byte("ERR: JOIN failed\n"))
+				conn.Write([]byte("ERR: JOIN COMMIT failed\n"))
 				return
 			}
 
-			//update metadata
 			newRange := config.SlotRange{Start: startRange, End: EndRange, Nodes: []*config.Node{&newNode}}
 			s.Metadata = append(s.Metadata, &newRange)
 			s.Nodes = append(s.Nodes, &newNode)
 			s.Nnode++
+			sort.Slice(s.Metadata, func(i, j int) bool {
+				return s.Metadata[i].Start < s.Metadata[j].Start
+			})
+
+			//Sends the metadata to the new server
+			conn.Write([]byte("CLUSTER_METADATA_BEGIN\n"))
+			for _, slot := range s.Metadata {
+				var nodeInfos []string
+				if len(slot.Nodes) > 0 {
+					for _, node := range slot.Nodes {
+						nodeInfo := fmt.Sprintf("%s@%s", node.ServerID, node.Addr)
+						nodeInfos = append(nodeInfos, nodeInfo)
+					}
+				} else {
+					nodeInfos = append(nodeInfos, "NONE")
+				}
+				//SLOT <Start> <End> <Node1@Addr1>,<Node2@Addr2>,...
+				msg := fmt.Sprintf("SLOT %d %d %s\n", slot.Start, slot.End, strings.Join(nodeInfos, ","))
+				conn.Write([]byte(msg))
+			}
+
+			conn.Write([]byte("CLUSTER_METADATA_END\n"))
 
 			//JOIN_SUCCESS START END
 			msg := fmt.Sprintf("JOIN_SUCCESS %s %s", strconv.Itoa(int(startRange)), strconv.Itoa(int(EndRange)))
@@ -138,7 +161,13 @@ func HandleClusterCommand(cmd string, conn net.Conn, s *config.Server) {
 			}
 		}
 
+	case "CLUSTER_METADATA_BEGIN":
+		{
+			reader := bufio.NewReader(conn)
+			HandleIncomingClusterMetadata(reader, s)
+		}
 	}
+
 }
 
 func determineRange(s *config.Server) (int, uint16, uint16) {
@@ -172,28 +201,29 @@ func Prepare(new *config.Node, start, end uint16, mod *config.Node, s *config.Se
 		if node.ServerID == s.ServerID {
 			continue
 		}
-		conn, err := net.DialTimeout("tcp", node.Addr, time.Second)
+		busport, _ := utils.BumpPort(node.Addr, 10000)
+		conn, err := net.DialTimeout("tcp", busport, time.Second)
 		if err != nil {
-			return "", false, fmt.Errorf("failed to connect to peer(ID:%s) %s: %w", node.ServerID, node.Addr, err)
+			return "", false, fmt.Errorf("failed to connect to peer(ID:%s) %s: %w", node.ServerID, busport, err)
 		}
 		conn.SetDeadline(time.Now().Add(2 * time.Second))
 
 		_, err = conn.Write([]byte(message))
 		if err != nil {
 			conn.Close()
-			return "", false, fmt.Errorf("failed to write to peer(ID:%s) %s: %w", node.ServerID, node.Addr, err)
+			return "", false, fmt.Errorf("failed to write to peer(ID:%s) %s: %w", node.ServerID, busport, err)
 		}
 
 		reader := bufio.NewReader(conn)
 		resp, err := reader.ReadString('\n')
 		conn.Close()
 		if err != nil {
-			return "", false, fmt.Errorf("failed to read response from peer(ID:%s) %s: %w", node.ServerID, node.Addr, err)
+			return "", false, fmt.Errorf("failed to read response from peer(ID:%s) %s: %w", node.ServerID, busport, err)
 		}
 
 		if strings.TrimSpace(resp) != expectedResp {
 			return "", false, fmt.Errorf("unexpected response from peer(ID:%s) %s: got %q, expected %q",
-				node.ServerID, node.Addr, strings.TrimSpace(resp), expectedResp)
+				node.ServerID, busport, strings.TrimSpace(resp), expectedResp)
 		}
 	}
 
@@ -216,31 +246,107 @@ func commit(mid string, s *config.Server) (bool, error) {
 		if node.ServerID == s.ServerID {
 			continue
 		}
-		conn, err := net.DialTimeout("tcp", node.Addr, time.Second)
+		busport, _ := utils.BumpPort(node.Addr, 10000)
+		conn, err := net.DialTimeout("tcp", busport, time.Second)
 		if err != nil {
-			msg := fmt.Sprintf("failed to connect to peer(ID:%s) %s: %s", node.ServerID, node.Addr, err.Error())
+			msg := fmt.Sprintf("failed to connect to peer(ID:%s) %s: %s", node.ServerID, busport, err.Error())
 			return false, errors.New(msg)
 		}
 
 		_, err = conn.Write([]byte(msg + "\n"))
 		if err != nil {
-			msg := fmt.Sprintf("failed to write to peer(ID:%s) %s: %s", node.ServerID, node.Addr, err.Error())
+			msg := fmt.Sprintf("failed to write to peer(ID:%s) %s: %s", node.ServerID, busport, err.Error())
 			return false, errors.New(msg)
 		}
 
 		response := make([]byte, 1024)
 		n, err := conn.Read(response)
 		if err != nil {
-			msg := fmt.Sprintf("failed to read from peer(ID:%s) %s: %s", node.ServerID, node.Addr, err.Error())
+			msg := fmt.Sprintf("failed to read from peer(ID:%s) %s: %s", node.ServerID, busport, err.Error())
 			return false, errors.New(msg)
 		}
 
 		respStr := strings.TrimSpace(string(response[:n]))
 		if respStr != "COMMIT SUCCESS" {
-			msg := fmt.Sprintf("unexpected response from peer(ID:%s) %s: %s", node.ServerID, node.Addr, respStr)
+			msg := fmt.Sprintf("unexpected response from peer(ID:%s) %s: %s", node.ServerID, busport, respStr)
 			return false, errors.New(msg)
 		}
 		conn.Close()
 	}
+
 	return true, nil
+}
+
+func HandleIncomingClusterMetadata(reader *bufio.Reader, s *config.Server) error {
+	s.Metadata = []*config.SlotRange{}
+	nodeMap := map[string]*config.Node{}
+
+	for {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			return fmt.Errorf("failed to read metadata: %w", err)
+		}
+		line = strings.TrimSpace(line)
+
+		if line == "CLUSTER_METADATA_END" {
+			break
+		}
+		if line == "CLUSTER_METADATA_BEGIN" {
+			continue
+		}
+		if !strings.HasPrefix(line, "SLOT") {
+			continue
+		}
+
+		//Format SLOT <start> <end> <node1@addr1>,<node2@addr2>
+		parts := strings.Fields(line)
+		if len(parts) < 4 {
+			continue
+		}
+
+		start, err := strconv.ParseUint(parts[1], 10, 16)
+		if err != nil {
+			return fmt.Errorf("invalid slot start: %v", err)
+		}
+		end, err := strconv.ParseUint(parts[2], 10, 16)
+		if err != nil {
+			return fmt.Errorf("invalid slot end: %v", err)
+		}
+
+		var slotNodes []*config.Node
+		nodeEntries := strings.Split(parts[3], ",")
+		for _, entry := range nodeEntries {
+			if entry == "NONE" {
+				continue
+			}
+			parts := strings.Split(entry, "@")
+			if len(parts) != 2 {
+				continue
+			}
+			id := parts[0]
+			addr := parts[1]
+
+			if existing, ok := nodeMap[id]; ok {
+				slotNodes = append(slotNodes, existing)
+			} else {
+				node := &config.Node{ServerID: id, Addr: addr}
+				slotNodes = append(slotNodes, node)
+				nodeMap[id] = node
+			}
+		}
+
+		s.Metadata = append(s.Metadata, &config.SlotRange{
+			Start: uint16(start),
+			End:   uint16(end),
+			Nodes: slotNodes,
+		})
+	}
+
+	//Rebuild s.Nodes
+	s.Nodes = []*config.Node{}
+	for _, node := range nodeMap {
+		s.Nodes = append(s.Nodes, node)
+	}
+	s.Nnode = uint16(len(s.Nodes))
+	return nil
 }

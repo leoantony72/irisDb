@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"sort"
 	"strings"
 
 	"iris/bus"
@@ -38,6 +39,7 @@ func main() {
 	}
 	defer lis.Close()
 	log.Printf("IrisDb started at port:%s \n", server.Port)
+	go bus.NewBusRoute(server)
 
 	if *clusterAddr != "" {
 		err := joinCluster(*clusterAddr, server)
@@ -46,7 +48,6 @@ func main() {
 		}
 	}
 
-	go bus.NewBusRoute(server)
 	for {
 		conn, err := lis.Accept()
 		if err != nil {
@@ -88,6 +89,25 @@ func joinCluster(addr string, server *config.Server) error {
 	}
 
 	reader := bufio.NewReader(conn)
+
+	// 1. Handle CLUSTER_METADATA_BEGIN block first
+	line, err := reader.ReadString('\n')
+	if err != nil {
+		return fmt.Errorf("failed to read response: %v", err)
+	}
+	line = strings.TrimSpace(line)
+
+	if line != "CLUSTER_METADATA_BEGIN" {
+		return fmt.Errorf("expected CLUSTER_METADATA_BEGIN, got: %s", line)
+	}
+
+	//Parse metadata block
+	err = bus.HandleIncomingClusterMetadata(reader, server)
+	if err != nil {
+		return fmt.Errorf("failed to parse cluster metadata: %v", err)
+	}
+
+	//2. Handle JOIN_SUCCESS message after metadata
 	responseLine, err := reader.ReadString('\n')
 	if err != nil {
 		return fmt.Errorf("failed to read JOIN response: %v", err)
@@ -96,7 +116,6 @@ func joinCluster(addr string, server *config.Server) error {
 	responseLine = strings.TrimSpace(responseLine)
 	parts := strings.Fields(responseLine)
 
-	// Expecting: JOIN_SUCCESS START END
 	if len(parts) != 3 || parts[0] != "JOIN_SUCCESS" {
 		return fmt.Errorf("unexpected JOIN response: %s", responseLine)
 	}
@@ -110,9 +129,11 @@ func joinCluster(addr string, server *config.Server) error {
 		return err
 	}
 
-	server.Metadata[0].Start = start
-	server.Metadata[0].End = end
+	sort.Slice(server.Metadata, func(i, j int) bool {
+		return server.Metadata[i].Start < server.Metadata[j].Start
+	})
 
-	log.Printf("Sent JOIN request to %s: %s", addr, strings.TrimSpace(joinMsg))
+	//update server ranges
+	log.Printf("✅ Successfully joined cluster via %s: SlotRange [%d - %d]", addr, start, end)
 	return nil
 }

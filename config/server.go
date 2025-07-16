@@ -103,4 +103,3 @@ func NewServer(name string) *Server {
 
 	return &node
 }
-
