@@ -12,32 +12,35 @@ type Node struct {
 }
 
 type SlotRange struct {
-	Start uint16
-	End   uint16
-	Nodes []*Node //list of master nodes
+	Start    uint16
+	End      uint16
+	MasterID string
+	Nodes    []*Node //list of master nodes
 }
 
-// PREPARE MESSAGEID SERVERID ADDR START END MODIFIED_SERVERID
+// PREPARE MESSAGEID TargetNodeID ADDR START END ModifiedNodeID
 type PrepareMessage struct {
 	MessageID      string
-	ServerID       string
-	Addr           string
+	SourceNodeID   string // The node initiating the preparation
+	TargetNodeID   string // The new node ID to be initialized
+	Addr           string // Addr of the new Node
 	Start          uint16
 	End            uint16
-	ModifiedNodeID string
+	ModifiedNodeID string // ID of the node from which the slots for the new nodes are taken
 }
 
 type Server struct {
-	ServerID string
-	Host     string
-	Addr     string
-	Port     string
-	N        uint16       //hosh slots 2^14
-	Nnode    uint16       //number of nodes
-	Nodes    []*Node      //list of connected nodes
-	Metadata []*SlotRange //hash slots
-	BusPort  string
-	Prepared map[string]*PrepareMessage
+	ServerID        string
+	Host            string
+	Addr            string
+	Port            string
+	N               uint16           //hosh slots 2^14
+	Nnode           uint16           //number of nodes
+	Nodes           map[string]*Node //list of connected nodes
+	Metadata        []*SlotRange     //hash slots
+	Cluster_Version uint64
+	BusPort         string
+	Prepared        map[string]*PrepareMessage
 }
 
 func NewServer(name string) *Server {
@@ -86,11 +89,12 @@ func NewServer(name string) *Server {
 		Port:     selectedPort,
 		Host:     ip,
 		BusPort:  selectedBusPort,
-		Nodes:    []*Node{},
+		Nodes:    map[string]*Node{},
 		Prepared: make(map[string]*PrepareMessage),
 	}
 
-	node.Nodes = append(node.Nodes, &Node{ServerID: name, Addr: addr})
+	// node.Nodes = append(node.Nodes, &Node{ServerID: name, Addr: addr})
+	node.Nodes[name] = &Node{ServerID: name, Addr: addr}
 	node.Nnode = 1
 
 	node.Metadata = append(node.Metadata, &SlotRange{

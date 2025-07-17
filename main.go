@@ -7,7 +7,6 @@ import (
 	"io"
 	"log"
 	"net"
-	"sort"
 	"strings"
 
 	"iris/bus"
@@ -75,65 +74,70 @@ func handleConnection(conn net.Conn, db *engine.Engine, server *config.Server) {
 	}
 }
 
+// joinCluster connects to an existing node in the cluster and requests to join.
 func joinCluster(addr string, server *config.Server) error {
+	log.Printf("Attempting to join cluster via %s...", addr)
 	conn, err := net.Dial("tcp", addr)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to connect to %s: %w", addr, err)
 	}
 	defer conn.Close()
 
 	joinMsg := fmt.Sprintf("JOIN %s %s\n", server.ServerID, server.Port)
 	_, err = conn.Write([]byte(joinMsg))
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to send JOIN message: %w", err)
 	}
+	log.Printf("Sent JOIN message: %s", strings.TrimSpace(joinMsg))
 
 	reader := bufio.NewReader(conn)
 
 	// 1. Handle CLUSTER_METADATA_BEGIN block first
 	line, err := reader.ReadString('\n')
 	if err != nil {
-		return fmt.Errorf("failed to read response: %v", err)
+		return fmt.Errorf("failed to read first response line: %w", err)
 	}
 	line = strings.TrimSpace(line)
 
 	if line != "CLUSTER_METADATA_BEGIN" {
+		// Log the unexpected response for debugging
+		log.Printf("Error: Expected CLUSTER_METADATA_BEGIN, got: %s", line)
 		return fmt.Errorf("expected CLUSTER_METADATA_BEGIN, got: %s", line)
 	}
+	log.Println("Received CLUSTER_METADATA_BEGIN.")
 
-	//Parse metadata block
+	// Parse metadata block using the bus package's handler
+	// This will update server.Metadata and server.Nodes based on the received information
 	err = bus.HandleIncomingClusterMetadata(reader, server)
 	if err != nil {
 		return fmt.Errorf("failed to parse cluster metadata: %v", err)
 	}
+	log.Printf("Successfully parsed incoming cluster metadata. Current metadata version: %d", server.Cluster_Version)
 
-	//2. Handle JOIN_SUCCESS message after metadata
+	// 2. Handle JOIN_SUCCESS message after metadata
 	responseLine, err := reader.ReadString('\n')
 	if err != nil {
-		return fmt.Errorf("failed to read JOIN response: %v", err)
+		return fmt.Errorf("failed to read JOIN_SUCCESS response: %w", err)
 	}
 
 	responseLine = strings.TrimSpace(responseLine)
 	parts := strings.Fields(responseLine)
 
+	//Expected:JOIN_SUCCESS <start_slot> <end_slot>
 	if len(parts) != 3 || parts[0] != "JOIN_SUCCESS" {
+		log.Printf("Error: Unexpected JOIN response format: %q", responseLine)
 		return fmt.Errorf("unexpected JOIN response: %s", responseLine)
 	}
 
-	start, err := utils.ParseUint16(parts[1])
+	assignedStart, err := utils.ParseUint16(parts[1])
 	if err != nil {
-		return err
+		return fmt.Errorf("invalid start slot in JOIN_SUCCESS: %w", err)
 	}
-	end, err := utils.ParseUint16(parts[2])
+	assignedEnd, err := utils.ParseUint16(parts[2])
 	if err != nil {
-		return err
+		return fmt.Errorf("invalid end slot in JOIN_SUCCESS: %w", err)
 	}
 
-	sort.Slice(server.Metadata, func(i, j int) bool {
-		return server.Metadata[i].Start < server.Metadata[j].Start
-	})
-
-	//update server ranges
-	log.Printf("✅ Successfully joined cluster via %s: SlotRange [%d - %d]", addr, start, end)
+	log.Printf("✅ Successfully joined cluster via %s. This server (%s) is responsible for SlotRange [%d - %d].", addr, server.ServerID, assignedStart, assignedEnd)
 	return nil
 }
