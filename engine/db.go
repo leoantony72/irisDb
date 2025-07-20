@@ -1,11 +1,13 @@
 package engine
 
 import (
+	"bufio"
 	"fmt"
 	"log"
 	"net"
 	"sort"
 	"strings"
+	"time"
 
 	"iris/config"
 	"iris/utils"
@@ -89,6 +91,38 @@ func (e *Engine) HandleCommand(cmd string, conn net.Conn, server *config.Server)
 			} else {
 				// @leoantony72 forward the req to the master node
 				// (masternode = server.Metadata[master_slot].Nodes[0])
+				busAddr, _ := utils.BumpPort(server.Metadata[master_slot].Nodes[0].Addr, 10000)
+				Sconn, err := net.DialTimeout("tcp", busAddr, 2*time.Second)
+				if err != nil {
+					errMsg := fmt.Sprintf("ERR write failed: %s\n", "Coudn't connect to Master Server")
+					conn.Write([]byte(errMsg))
+					return
+				}
+
+				//MESSAGE FORMAT: INS KEY VALUE
+				//RESPONSE FORMAT: ACK KEY
+				msg := fmt.Sprintf("INS %s %s", parts[1], parts[2])
+				_, err = Sconn.Write([]byte(msg))
+				if err != nil {
+					errMsg := fmt.Sprintf("ERR write failed: %s\n", "Coudn't forward to Master Server")
+					conn.Write([]byte(errMsg))
+					return
+				}
+
+				expectedResponse := fmt.Sprintf("ACK %s", parts[1])
+
+				reader := bufio.NewReader(Sconn)
+				resp, _ := reader.ReadString('\n')
+				Sconn.Close()
+
+				if resp != expectedResponse {
+					errMsg := fmt.Sprintf("ERR write failed: %s\n", "Err Response From Master Server")
+					conn.Write([]byte(errMsg))
+					return
+				} else {
+					conn.Write([]byte("OK\n"))
+				}
+
 			}
 
 		}
