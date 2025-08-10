@@ -56,11 +56,12 @@ func applyCommitChanges(s *config.Server, preparedMsg *config.PrepareMessage) er
 		s.Nnode++
 	}
 
-	// 2. Find the modified SlotRange
+	// 2. Find the modified SlotRange.
 	var modifiedRangeIdx = -1
 	for i, sr := range s.Metadata {
-		if len(sr.Nodes) > 0 && sr.Nodes[0].ServerID == preparedMsg.ModifiedNodeID &&
-			preparedMsg.Start > sr.Start && preparedMsg.End == sr.End {
+		if sr.MasterID == preparedMsg.ModifiedNodeID &&
+			preparedMsg.Start >= sr.Start && preparedMsg.End == sr.End &&
+			preparedMsg.Start > sr.Start { 
 			modifiedRangeIdx = i
 			break
 		}
@@ -70,21 +71,24 @@ func applyCommitChanges(s *config.Server, preparedMsg *config.PrepareMessage) er
 		return fmt.Errorf("ModifiedNode SlotRange not found for expected split pattern. PreparedMsg: %+v, Current Metadata: %+v", preparedMsg, s.Metadata)
 	}
 
-	originalSR := s.Metadata[modifiedRangeIdx]
-	originalSR.End = preparedMsg.Start - 1
+	s.Metadata[modifiedRangeIdx].End = preparedMsg.Start - 1
+	s.Metadata[modifiedRangeIdx].Nodes = preparedMsg.ModifiedNodeReplicaList
 
+	// Create the new slot range for the joining node.
 	newJoinNodeRange := &config.SlotRange{
 		Start:    preparedMsg.Start,
 		End:      preparedMsg.End,
 		MasterID: preparedMsg.TargetNodeID,
-		Nodes:    []*config.Node{s.Nodes[preparedMsg.TargetNodeID]}, // Use the globally registered node object
+		Nodes:    preparedMsg.TargetNodeReplicaList,
 	}
+
 	s.Metadata = append(s.Metadata, newJoinNodeRange)
 	sort.Slice(s.Metadata, func(i, j int) bool {
 		return s.Metadata[i].Start < s.Metadata[j].Start
 	})
 
-	s.Cluster_Version++                       //Increment cluster version on successful commit
-	delete(s.Prepared, preparedMsg.MessageID) // Remove from preparedMsg state
+	s.Cluster_Version++
+
+	delete(s.Prepared, preparedMsg.MessageID)
 	return nil
 }

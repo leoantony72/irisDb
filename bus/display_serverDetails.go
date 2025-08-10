@@ -20,7 +20,12 @@ func HandleShow(conn net.Conn, s *config.Server) {
 	for _, sr := range s.Metadata {
 		nodeAddrs := []string{}
 		for _, node := range sr.Nodes {
-			nodeAddrs = append(nodeAddrs, fmt.Sprintf("%s@%s", node.ServerID, node.Addr))
+			fmt.Printf("@@Node:%s\n", node)
+			if node == "NONE"{
+				nodeAddrs = append(nodeAddrs, "NONE")
+				break
+			}
+			nodeAddrs = append(nodeAddrs, fmt.Sprintf("%s@%s", s.Nodes[node].ServerID, s.Nodes[node].Addr))
 		}
 		nodesStr := strings.Join(nodeAddrs, ",")
 		if nodesStr == "" {

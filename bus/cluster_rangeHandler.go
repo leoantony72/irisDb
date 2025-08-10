@@ -44,7 +44,7 @@ func DetermineRange(s *config.Server) (int, uint16, uint16) {
 	newRangeEnd := end
 
 	log.Printf("Selected range for split: %d-%d (owned by %s). New node will take %d-%d. Old node keeps %d-%d.",
-		selectedRange.Start, selectedRange.End, selectedRange.Nodes[0].ServerID, newRangeStart, newRangeEnd, start, mid)
+		selectedRange.Start, selectedRange.End, selectedRange.MasterID, newRangeStart, newRangeEnd, start, mid)
 
 	return selectedIdx, newRangeStart, newRangeEnd
 }

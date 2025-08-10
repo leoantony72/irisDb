@@ -49,9 +49,12 @@ func HandleIncomingClusterMetadata(reader *bufio.Reader, s *config.Server) error
 			continue
 		}
 
-		//Expected format: SLOT <start> <end> <Node1@Addr1>,<Node2@Addr2>,
+		log.Printf("⭕CH:%s\n", line)
+
+		//Expected format: SLOT <start> <end> <Node1@Addr1>,<Node2@Addr2>, *old
+		//Expected format: SLOT <start> <end> <MASTERID> <Node1ID@ADDR1>,<Node2ID@ADDR2>,
 		parts := strings.Fields(line)
-		if len(parts) < 4 {
+		if len(parts) < 5 {
 			log.Printf("Skipping malformed SLOT line (not enough parts): %q", line)
 			continue
 		}
@@ -65,10 +68,11 @@ func HandleIncomingClusterMetadata(reader *bufio.Reader, s *config.Server) error
 			return fmt.Errorf("invalid slot end %q in line %q: %w", parts[2], line, err)
 		}
 
-		var slotNodes []*config.Node
-		nodeEntries := strings.Split(parts[3], ",")
-		var masterID string // Capture master ID if implied by the first node
-		for i, entry := range nodeEntries {
+		MasterNode := parts[3]
+
+		var slotNodes []string
+		nodeEntries := strings.Split(parts[4], ",")
+		for _, entry := range nodeEntries {
 			if entry == "NONE" {
 				continue
 			}
@@ -80,23 +84,19 @@ func HandleIncomingClusterMetadata(reader *bufio.Reader, s *config.Server) error
 			id := nodeParts[0]
 			addr := nodeParts[1]
 
-			node, ok := newNodeMap[id] // Check if we've already parsed this node during this metadata sync
+			node, ok := newNodeMap[entry] // Check if we've already parsed this node during this metadata sync
 			if !ok {
 				node = &config.Node{ServerID: id, Addr: addr}
 				newNodeMap[id] = node
 			}
-			slotNodes = append(slotNodes, node)
+			slotNodes = append(slotNodes, node.ServerID)
 
-			//first node in the part[3] will be the masterNode
-			if i == 0 {
-				masterID = id
-			}
 		}
 
 		newMetadata = append(newMetadata, &config.SlotRange{
 			Start:    uint16(start),
 			End:      uint16(end),
-			MasterID: masterID,
+			MasterID: MasterNode,
 			Nodes:    slotNodes,
 		})
 	}

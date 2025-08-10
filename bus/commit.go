@@ -36,7 +36,7 @@ func HandleCommit(conn net.Conn, parts []string, s *config.Server) {
 	// 2. Find the modified SlotRange
 	var modifiedRangeIdx = -1
 	for i, sr := range s.Metadata {
-		if len(sr.Nodes) > 0 && sr.Nodes[0].ServerID == preparedMsg.ModifiedNodeID &&
+		if sr.MasterID == preparedMsg.ModifiedNodeID &&
 			preparedMsg.Start > sr.Start && preparedMsg.End == sr.End {
 			modifiedRangeIdx = i
 			break
@@ -54,18 +54,22 @@ func HandleCommit(conn net.Conn, parts []string, s *config.Server) {
 
 	// Modify the existing range for the modified node to newNodeStart range - 1
 	originalSR.End = preparedMsg.Start - 1
+	originalSR.Nodes = preparedMsg.ModifiedNodeReplicaList
 
 	// Create the new slot range for the joining node
 	newJoinNodeRange := &config.SlotRange{
 		Start:    preparedMsg.Start,
 		End:      preparedMsg.End,
 		MasterID: preparedMsg.TargetNodeID,
-		Nodes:    []*config.Node{s.Nodes[preparedMsg.TargetNodeID]},
+		Nodes:    preparedMsg.TargetNodeReplicaList,
 	}
 	s.Metadata = append(s.Metadata, newJoinNodeRange)
 	sort.Slice(s.Metadata, func(i, j int) bool {
 		return s.Metadata[i].Start < s.Metadata[j].Start
 	})
+
+	newNode := &config.Node{Addr: preparedMsg.Addr, ServerID: preparedMsg.TargetNodeID}
+	s.Nodes[preparedMsg.TargetNodeID] = newNode
 
 	s.Cluster_Version++           // Increment cluster version on successful commit
 	delete(s.Prepared, messageID) // Remove PrepareMessage from prepared state

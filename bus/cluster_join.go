@@ -23,15 +23,16 @@ func HandleJoin(conn net.Conn, parts []string, s *config.Server) {
 
 	modifiedRangeIdx, startRangeForNewNode, endRangeForNewNode := DetermineRange(s)
 
-	if len(s.Metadata[modifiedRangeIdx].Nodes) == 0 {
-		conn.Write([]byte("ERR: JOIN failed. Selected slot range has no assigned nodes.\n"))
-		return
-	}
-	modifiedNode := s.Metadata[modifiedRangeIdx].Nodes[0]
+	// if len(s.Metadata[modifiedRangeIdx].Nodes) == 0 {
+	// 	conn.Write([]byte("ERR: JOIN failed. Selected slot range has no assigned nodes.\n"))
+	// 	return
+	// }
+	// modifiedNode := s.Metadata[modifiedRangeIdx].Nodes[0]
+	modifiedNode := s.Nodes[s.Metadata[modifiedRangeIdx].MasterID]
 	log.Printf("Joining node %s (addr: %s). Selected slot range %d-%d from node %s (addr: %s) to split.",
 		newNode.ServerID, newNode.Addr, startRangeForNewNode, endRangeForNewNode, modifiedNode.ServerID, modifiedNode.Addr)
 
-	mid, prepareSuccess, err := Prepare(&newNode, startRangeForNewNode, endRangeForNewNode, modifiedNode, s)
+	mid, prepareSuccess, err := Prepare(&newNode, startRangeForNewNode, endRangeForNewNode, modifiedNode, s, []string{}, []string{})
 	if err != nil {
 		conn.Write([]byte(fmt.Sprintf("ERR: JOIN PREPARE(ERR) failed: %s\n", err.Error())))
 		log.Printf("Prepare err: %s", err.Error())
@@ -66,15 +67,16 @@ func HandleJoin(conn net.Conn, parts []string, s *config.Server) {
 		var nodeInfos []string
 		if len(slot.Nodes) > 0 {
 			for _, node := range slot.Nodes {
-				nodeInfo := fmt.Sprintf("%s@%s", node.ServerID, node.Addr)
+				nodeInfo := fmt.Sprintf("%s@%s", s.Nodes[node].ServerID, s.Nodes[node].Addr)
 				nodeInfos = append(nodeInfos, nodeInfo)
 			}
 		} else {
 			nodeInfos = append(nodeInfos, "NONE")
 		}
 
-		// SLOT <Start> <End> <Node1@Addr1>,<Node2@Addr2>,... (using ALL nodes in slot.Nodes)
-		msg := fmt.Sprintf("SLOT %d %d %s\n", slot.Start, slot.End, strings.Join(nodeInfos, ","))
+		// SLOT <Start> <End> <Node1@Addr1>,<Node2@Addr2>,... (using ALL nodes in slot.Nodes) *old
+		// SLOT <Start> <End> <MasterNodeID> <Node1@Addr1>,<Node2@Addr2>,... (using ALL nodes in slot.Nodes)
+		msg := fmt.Sprintf("SLOT %d %d %s %s\n", slot.Start, slot.End, slot.MasterID, strings.Join(nodeInfos, ","))
 		conn.Write([]byte(msg))
 	}
 	conn.Write([]byte("CLUSTER_METADATA_END\n"))

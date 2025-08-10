@@ -14,8 +14,10 @@ import (
 )
 
 func HandlePrepare(conn net.Conn, parts []string, s *config.Server) {
-	// PREPARE <MessageID> <TargetNodeID> <TargetNodeAddr> <Start> <End> <ModifiedNodeID>
-	if len(parts) != 7 {
+	// PREPARE <MessageID> <TargetNodeID> <TargetNodeAddr> <Start> <End> <ModifiedNodeID> *old
+
+	// PREPARE <MessageID> <TargetNodeID> <TargetNodeAddr> <Start> <End> <ModifiedNodeID> <ModifiedNodeNewReplica_List(nodeid1,nodeid2,nodeid3)> <NewNodeReplica_List(nodeid1,nodeid2,nodeid3)>
+	if len(parts) != 9 {
 		conn.Write([]byte("ERR: Usage: PREPARE <MessageID> <TargetNodeID> <TargetNodeAddr> <Start> <End> <ModifiedNodeID>\n"))
 		return
 	}
@@ -46,7 +48,7 @@ func HandlePrepare(conn net.Conn, parts []string, s *config.Server) {
 	//    This is crucial to prevent unauthorized modifications.
 	var isModifiedNodeMaster bool
 	for _, sr := range s.Metadata {
-		if len(sr.Nodes) > 0 && sr.Nodes[0].ServerID == modifiedNodeID { // Assuming first node in list is master
+		if sr.MasterID == modifiedNodeID {
 			if start >= sr.Start && end <= sr.End {
 				// This server is being asked to modify a range it (or its designated master) owns.
 				isModifiedNodeMaster = true
@@ -61,15 +63,31 @@ func HandlePrepare(conn net.Conn, parts []string, s *config.Server) {
 		return
 	}
 
+	modifiedNode_replicaList := parts[7]
+	targetNode_replicaList := parts[8]
+	var Mreplicas []string
+	var Treplicas []string
+	if modifiedNode_replicaList == "NONE" {
+		Mreplicas = []string{}
+	}
+	Mreplicas = strings.Split(modifiedNode_replicaList, ",")
+
+	if targetNode_replicaList == "NONE" {
+		Treplicas = []string{}
+	}
+	Treplicas = strings.Split(targetNode_replicaList, ",")
+
 	// Store the prepare message in the 'Prepared' map
 	s.Prepared[messageID] = &config.PrepareMessage{
-		MessageID:      messageID,
-		SourceNodeID:   s.ServerID, // This server is acting as the source for the prepare.
-		TargetNodeID:   targetNodeID,
-		Addr:           targetNodeAddr, // Addr of the new Node
-		Start:          start,
-		End:            end,
-		ModifiedNodeID: modifiedNodeID,
+		MessageID:               messageID,
+		SourceNodeID:            s.ServerID, // This server is acting as the source for the prepare.
+		TargetNodeID:            targetNodeID,
+		Addr:                    targetNodeAddr, // Addr of the new Node
+		Start:                   start,
+		End:                     end,
+		ModifiedNodeID:          modifiedNodeID,
+		ModifiedNodeReplicaList: Mreplicas,
+		TargetNodeReplicaList:   Treplicas,
 	}
 	log.Printf("PREPARE message %s received and accepted. State stored locally.", messageID)
 
@@ -79,22 +97,42 @@ func HandlePrepare(conn net.Conn, parts []string, s *config.Server) {
 
 // sends a PREPARE message to all other nodes in the cluster.
 // also adds the message to coordinating servers PreparedMsg Map
-func Prepare(newNode *config.Node, start, end uint16, modifiedNode *config.Node, s *config.Server) (string, bool, error) {
+func Prepare(newNode *config.Node, start, end uint16, modifiedNode *config.Node, s *config.Server, modifiedNode_replica_list []string, targetNode_replica_list []string) (string, bool, error) {
 	messageID := uuid.New().String()
-	// PREPARE MESSAGEID TargetNodeID ADDR START END ModifiedNodeID
-	message := fmt.Sprintf("PREPARE %s %s %s %d %d %s\n",
-		messageID, newNode.ServerID, newNode.Addr, start, end, modifiedNode.ServerID)
+	// PREPARE MESSAGEID TargetNodeID ADDR START END ModifiedNodeID *old
+	// PREPARE MESSAGEID TargetNodeID ADDR START END ModifiedNodeID <ModifiedNode_new_replicaList> <NewNode_replica_list>
+	modifiedReplicaList := ""
+	targetReplicaList := ""
+	if len(modifiedNode_replica_list) == 0 {
+		modifiedReplicaList = "NONE"
+	} else {
+		for _, v := range modifiedNode_replica_list {
+			modifiedReplicaList = modifiedReplicaList + v + ","
+		}
+	}
+
+	if len(targetNode_replica_list) == 0 {
+		targetReplicaList = "NONE"
+	} else {
+		for _, v := range targetNode_replica_list {
+			targetReplicaList = targetReplicaList + v + ","
+		}
+	}
+	message := fmt.Sprintf("PREPARE %s %s %s %d %d %s %s %s\n",
+		messageID, newNode.ServerID, newNode.Addr, start, end, modifiedNode.ServerID, modifiedReplicaList, targetReplicaList)
 	expectedResp := fmt.Sprintf("PREPARE SUCCESS %s", messageID)
 
 	// Update the coordinating server's own prepared state directly
 	s.Prepared[messageID] = &config.PrepareMessage{
-		MessageID:      messageID,
-		SourceNodeID:   s.ServerID, // This server is the coordinator/source
-		TargetNodeID:   newNode.ServerID,
-		Addr:           newNode.Addr,
-		Start:          start,
-		End:            end,
-		ModifiedNodeID: modifiedNode.ServerID,
+		MessageID:               messageID,
+		SourceNodeID:            s.ServerID, // This server is the coordinator/source
+		TargetNodeID:            newNode.ServerID,
+		Addr:                    newNode.Addr,
+		Start:                   start,
+		End:                     end,
+		ModifiedNodeID:          modifiedNode.ServerID,
+		ModifiedNodeReplicaList: modifiedNode_replica_list,
+		TargetNodeReplicaList:   targetNode_replica_list,
 	}
 	log.Printf("Local prepared state for MessageID %s updated on coordinator.", messageID)
 

@@ -76,7 +76,7 @@ func (e *Engine) HandleCommand(cmd string, conn net.Conn, server *config.Server)
 			master_slot := FindNodeIDX(server, hash%server.N)
 
 			//check if the server is the master node for this slot(hash)
-			if server.Metadata[master_slot].Nodes[0].ServerID == server.ServerID {
+			if server.Metadata[master_slot].MasterID == server.ServerID {
 				err := e.Db.Set([]byte(parts[1]), []byte(parts[2]), pebble.Sync)
 				if err != nil {
 					errMsg := fmt.Sprintf("ERR write failed: %s\n", err.Error())
@@ -86,12 +86,12 @@ func (e *Engine) HandleCommand(cmd string, conn net.Conn, server *config.Server)
 				}
 
 				// @leoantony72 send the data to the replica nodes through the bus port
-				replica_server := server.Metadata[master_slot].Nodes[1:]
-				fmt.Println("Replication Nodes:", replica_server)
+				// replica_server := server.Metadata[master_slot].Nodes[1:]
+				// fmt.Println("Replication Nodes:", replica_server)
 			} else {
 				// @leoantony72 forward the req to the master node
 				// (masternode = server.Metadata[master_slot].Nodes[0])
-				busAddr, _ := utils.BumpPort(server.Metadata[master_slot].Nodes[0].Addr, 10000)
+				busAddr, _ := utils.BumpPort(server.Nodes[server.Metadata[master_slot].MasterID].Addr, 10000)
 				Sconn, err := net.DialTimeout("tcp", busAddr, 2*time.Second)
 				if err != nil {
 					errMsg := fmt.Sprintf("ERR write failed: %s\n", "Coudn't connect to Master Server")

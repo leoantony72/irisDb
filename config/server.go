@@ -15,18 +15,20 @@ type SlotRange struct {
 	Start    uint16
 	End      uint16
 	MasterID string
-	Nodes    []*Node //list of master nodes
+	Nodes    []string //list of replica node IDs
 }
 
 // PREPARE MESSAGEID TargetNodeID ADDR START END ModifiedNodeID
 type PrepareMessage struct {
-	MessageID      string
-	SourceNodeID   string // The node initiating the preparation
-	TargetNodeID   string // The new node ID to be initialized
-	Addr           string // Addr of the new Node
-	Start          uint16
-	End            uint16
-	ModifiedNodeID string // ID of the node from which the slots for the new nodes are taken
+	MessageID               string
+	SourceNodeID            string // The node initiating the preparation
+	TargetNodeID            string // The new node ID to be initialized
+	Addr                    string // Addr of the new Node
+	Start                   uint16
+	End                     uint16
+	ModifiedNodeID          string // ID of the node from which the slots for the new nodes are taken
+	ModifiedNodeReplicaList []string
+	TargetNodeReplicaList   []string
 }
 
 type Server struct {
@@ -82,7 +84,7 @@ func NewServer(name string) *Server {
 	}
 
 	addr := ip + ":" + selectedPort
-	node := Server{
+	server := Server{
 		ServerID: name,
 		Addr:     addr,
 		N:        16384,
@@ -94,16 +96,17 @@ func NewServer(name string) *Server {
 	}
 
 	// node.Nodes = append(node.Nodes, &Node{ServerID: name, Addr: addr})
-	node.Nodes[name] = &Node{ServerID: name, Addr: addr}
-	node.Nnode = 1
+	server.Nodes[name] = &Node{ServerID: name, Addr: addr}
+	server.Nnode = 1
 
-	node.Metadata = append(node.Metadata, &SlotRange{
-		Start: 0,
-		End:   16383,
-		Nodes: []*Node{{ServerID: name, Addr: addr}},
+	server.Metadata = append(server.Metadata, &SlotRange{
+		Start:    0,
+		End:      16383,
+		MasterID: name,
+		Nodes:    []string{},
 	})
 
 	log.Printf("🚀Server started on %s (bus: %s)", selectedPort, selectedBusPort)
 
-	return &node
+	return &server
 }
