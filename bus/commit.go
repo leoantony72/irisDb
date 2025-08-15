@@ -20,21 +20,23 @@ func HandleCommit(conn net.Conn, parts []string, s *config.Server) {
 	messageID := parts[1]
 	preparedMsg, exists := s.Prepared[messageID]
 	if !exists {
-		conn.Write([]byte("ERR: MessageID doesn't exists in prepared state.\n"))
+		conn.Write([]byte("ERR: MessageID doesn't exist in prepared state.\n"))
 		log.Printf("COMMIT failed for message ID %s: not found in prepared state.", messageID)
 		return
 	}
 
 	log.Printf("COMMIT message %s received. Applying changes locally.", messageID)
 
-	// 1. Add the new node to the global nodes map
 	if _, ok := s.Nodes[preparedMsg.TargetNodeID]; !ok {
-		s.Nodes[preparedMsg.TargetNodeID] = &config.Node{ServerID: preparedMsg.TargetNodeID, Addr: preparedMsg.Addr}
+		s.Nodes[preparedMsg.TargetNodeID] = &config.Node{
+			ServerID: preparedMsg.TargetNodeID,
+			Addr:     preparedMsg.Addr,
+		}
 		s.Nnode++
+		log.Printf("New node %s added to the cluster.", preparedMsg.TargetNodeID)
 	}
 
-	// 2. Find the modified SlotRange
-	var modifiedRangeIdx = -1
+	modifiedRangeIdx := -1
 	for i, sr := range s.Metadata {
 		if sr.MasterID == preparedMsg.ModifiedNodeID &&
 			preparedMsg.Start > sr.Start && preparedMsg.End == sr.End {
@@ -44,19 +46,15 @@ func HandleCommit(conn net.Conn, parts []string, s *config.Server) {
 	}
 
 	if modifiedRangeIdx == -1 {
-		conn.Write([]byte("ERR: COMMIT failed. ModifiedNode SlotRange not found for expected split pattern.\n"))
-		log.Printf("COMMIT failed for message ID %s: ModifiedNode SlotRange not found or range mismatch for upper-half split pattern. PreparedMsg: %+v, Current Metadata: %+v", messageID, preparedMsg, s.Metadata)
+		conn.Write([]byte("ERR: COMMIT failed. Could not find the slot range to split.\n"))
+		log.Printf("COMMIT failed for message ID %s: ModifiedNode SlotRange not found. PreparedMsg: %+v, Current Metadata: %+v", messageID, preparedMsg, s.Metadata)
 		return
 	}
 
-	//reference to the existing slot range that needs modification
-	originalSR := s.Metadata[modifiedRangeIdx]
+	s.Metadata[modifiedRangeIdx].End = preparedMsg.Start - 1
+	s.Metadata[modifiedRangeIdx].Nodes = preparedMsg.ModifiedNodeReplicaList
 
-	// Modify the existing range for the modified node to newNodeStart range - 1
-	originalSR.End = preparedMsg.Start - 1
-	originalSR.Nodes = preparedMsg.ModifiedNodeReplicaList
 
-	// Create the new slot range for the joining node
 	newJoinNodeRange := &config.SlotRange{
 		Start:    preparedMsg.Start,
 		End:      preparedMsg.End,
@@ -64,17 +62,16 @@ func HandleCommit(conn net.Conn, parts []string, s *config.Server) {
 		Nodes:    preparedMsg.TargetNodeReplicaList,
 	}
 	s.Metadata = append(s.Metadata, newJoinNodeRange)
+
 	sort.Slice(s.Metadata, func(i, j int) bool {
 		return s.Metadata[i].Start < s.Metadata[j].Start
 	})
 
-	newNode := &config.Node{Addr: preparedMsg.Addr, ServerID: preparedMsg.TargetNodeID}
-	s.Nodes[preparedMsg.TargetNodeID] = newNode
 
-	s.Cluster_Version++           // Increment cluster version on successful commit
-	delete(s.Prepared, messageID) // Remove PrepareMessage from prepared state
+	s.Cluster_Version++           // Increment cluster version
+	delete(s.Prepared, messageID) // Clean up the prepared message
 
-	log.Printf("COMMIT %s successful. Cluster version incremented to %d. Metadata updated.", messageID, s.Cluster_Version)
+	log.Printf("COMMIT %s successful. Cluster version is now %d. Metadata updated.", messageID, s.Cluster_Version)
 	conn.Write([]byte("COMMIT SUCCESS\n"))
 }
 

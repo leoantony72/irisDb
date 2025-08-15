@@ -3,6 +3,7 @@ package bus
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"iris/config"
 	"log"
 	"net"
@@ -17,7 +18,7 @@ func HandleMetadata(conn net.Conn, s *config.Server) {
 		log.Printf("Error handling incoming cluster metadata: %v", err)
 		conn.Write([]byte(fmt.Sprintf("ERR: Failed to process incoming metadata: %v\n", err)))
 	} else {
-		conn.Write([]byte("METADATA_RECEIVED_SUCCESS\n")) // Acknowledge receipt
+		conn.Write([]byte("METADATA_RECEIVED_SUCCESS\n"))
 	}
 }
 
@@ -25,13 +26,22 @@ func HandleMetadata(conn net.Conn, s *config.Server) {
 // This is typically used by a joining node to sync its view of the cluster.
 func HandleIncomingClusterMetadata(reader *bufio.Reader, s *config.Server) error {
 	newMetadata := []*config.SlotRange{}
-	newNodeMap := map[string]*config.Node{} // Temporarily build a new node map
+	newNodeMap := map[string]*config.Node{}
 
 	log.Println("Starting to handle incoming cluster metadata...")
+
+	selfNode, selfNodeExists := s.Nodes[s.ServerID]
+	if !selfNodeExists {
+		log.Printf("CRITICAL: Server's own node details (ID: %s) not found in its own Nodes map before metadata sync.", s.ServerID)
+	}
 
 	for {
 		line, err := reader.ReadString('\n')
 		if err != nil {
+			if err == io.EOF {
+				log.Println("Connection closed by peer during metadata sync.")
+				break
+			}
 			return fmt.Errorf("failed to read metadata line: %w", err)
 		}
 		line = strings.TrimSpace(line)
@@ -49,65 +59,61 @@ func HandleIncomingClusterMetadata(reader *bufio.Reader, s *config.Server) error
 			continue
 		}
 
-		log.Printf("⭕CH:%s\n", line)
+		fmt.Printf("Receiver Metadata: %s\n", line)
 
-		//Expected format: SLOT <start> <end> <Node1@Addr1>,<Node2@Addr2>, *old
-		//Expected format: SLOT <start> <end> <MASTERID> <Node1ID@ADDR1>,<Node2ID@ADDR2>,
+		// Expected format: SLOT <start> <end> <MASTERID> <Node1ID@ADDR1>,<Node2ID@ADDR2>,
 		parts := strings.Fields(line)
 		if len(parts) < 5 {
 			log.Printf("Skipping malformed SLOT line (not enough parts): %q", line)
 			continue
 		}
-
 		start, err := strconv.ParseUint(parts[1], 10, 16)
 		if err != nil {
-			return fmt.Errorf("invalid slot start %q in line %q: %w", parts[1], line, err)
+			return fmt.Errorf("invalid slot start %q: %w", parts[1], err)
 		}
 		end, err := strconv.ParseUint(parts[2], 10, 16)
 		if err != nil {
-			return fmt.Errorf("invalid slot end %q in line %q: %w", parts[2], line, err)
+			return fmt.Errorf("invalid slot end %q: %w", parts[2], err)
 		}
-
-		MasterNode := parts[3]
-
+		MasterNode := strings.Split(parts[3], "@")
 		var slotNodes []string
+		newNodeMap[MasterNode[0]] = &config.Node{ServerID: MasterNode[0], Addr: MasterNode[1]}
 		nodeEntries := strings.Split(parts[4], ",")
 		for _, entry := range nodeEntries {
-			if entry == "NONE" {
+			if entry == "" || entry == "NONE" {
 				continue
 			}
 			nodeParts := strings.Split(entry, "@")
 			if len(nodeParts) != 2 {
-				log.Printf("Skipping malformed node entry %q in line %q", entry, line)
+				log.Printf("Skipping malformed node entry %q", entry)
 				continue
 			}
-			id := nodeParts[0]
-			addr := nodeParts[1]
-
-			node, ok := newNodeMap[entry] // Check if we've already parsed this node during this metadata sync
-			if !ok {
-				node = &config.Node{ServerID: id, Addr: addr}
-				newNodeMap[id] = node
+			id, addr := nodeParts[0], nodeParts[1]
+			if _, ok := newNodeMap[id]; !ok {
+				newNodeMap[id] = &config.Node{ServerID: id, Addr: addr}
 			}
-			slotNodes = append(slotNodes, node.ServerID)
-
+			slotNodes = append(slotNodes, id)
 		}
-
 		newMetadata = append(newMetadata, &config.SlotRange{
 			Start:    uint16(start),
 			End:      uint16(end),
-			MasterID: MasterNode,
+			MasterID: MasterNode[0],
 			Nodes:    slotNodes,
 		})
 	}
 
-	//Update the server's metadata and node list
-	s.Metadata = newMetadata
 
-	// Rebuild s.Nodes map
+	s.Metadata = newMetadata
 	s.Nodes = newNodeMap
+
+	// Restore the server's own node details into the newly updated map.
+	if selfNodeExists {
+		s.Nodes[s.ServerID] = selfNode
+	}
+
 	s.Nnode = uint16(len(s.Nodes))
-	s.Cluster_Version++ // Increment version as metadata has been updated
+	s.Cluster_Version++ // Increment version as metadata is updated
+
 
 	log.Printf("Successfully updated metadata. New Cluster Version: %d, Nodes: %d, Slot Ranges: %d",
 		s.Cluster_Version, s.Nnode, len(s.Metadata))

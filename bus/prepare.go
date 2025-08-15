@@ -14,82 +14,63 @@ import (
 )
 
 func HandlePrepare(conn net.Conn, parts []string, s *config.Server) {
-	// PREPARE <MessageID> <TargetNodeID> <TargetNodeAddr> <Start> <End> <ModifiedNodeID> *old
-
-	// PREPARE <MessageID> <TargetNodeID> <TargetNodeAddr> <Start> <End> <ModifiedNodeID> <ModifiedNodeNewReplica_List(nodeid1,nodeid2,nodeid3)> <NewNodeReplica_List(nodeid1,nodeid2,nodeid3)>
 	if len(parts) != 9 {
-		conn.Write([]byte("ERR: Usage: PREPARE <MessageID> <TargetNodeID> <TargetNodeAddr> <Start> <End> <ModifiedNodeID>\n"))
+		conn.Write([]byte("ERR: Usage: PREPARE <MessageID> <TargetNodeID> <TargetNodeAddr> <Start> <End> <ModifiedNodeID> <ModifiedReplicas> <TargetReplicas>\n"))
 		return
 	}
+	// ... parsing of message parts ...
 	messageID := parts[1]
 	targetNodeID := parts[2]
 	targetNodeAddr := parts[3]
-	start, err := utils.ParseUint16(parts[4])
-	if err != nil {
-		conn.Write([]byte("ERR: Couldn't Parse StartRange\n"))
-		return
-	}
-	end, err := utils.ParseUint16(parts[5])
-	if err != nil {
-		conn.Write([]byte("ERR: Couldn't Parse EndRange\n"))
-		return
-	}
+	start, _ := utils.ParseUint16(parts[4])
+	end, _ := utils.ParseUint16(parts[5])
 	modifiedNodeID := parts[6]
 
-	// --- PREPARE phase logic on participating nodes ---
-	// 1. Check for conflicts: Ensure the node is not currently involved in another migration
-	//    that overlaps with the proposed range.
-	if _, exists := s.Prepared[messageID]; exists {
-		conn.Write([]byte(fmt.Sprintf("ERR: MessageID %s already exists in prepared state.\n", messageID)))
+	_, exists := s.Prepared[messageID]
+	if exists {
+		conn.Write([]byte(fmt.Sprintf("ERR: MessageID %s already exists.\n", messageID)))
 		return
 	}
 
-	// 2. Check if the 'ModifiedNodeID' actually owns the range it's supposed to give up.
-	//    This is crucial to prevent unauthorized modifications.
+	// Check ownership
 	var isModifiedNodeMaster bool
 	for _, sr := range s.Metadata {
-		if sr.MasterID == modifiedNodeID {
-			if start >= sr.Start && end <= sr.End {
-				// This server is being asked to modify a range it (or its designated master) owns.
-				isModifiedNodeMaster = true
-				break
-			}
+		if sr.MasterID == modifiedNodeID && start >= sr.Start && end <= sr.End {
+			isModifiedNodeMaster = true
+			break
 		}
 	}
 
 	if !isModifiedNodeMaster {
-		conn.Write([]byte(fmt.Sprintf("ERR: PREPARE failed. Node %s does not control slot range %d-%d or range is invalid.\n", modifiedNodeID, start, end)))
-		log.Printf("PREPARE failed for %s: Node %s does not control slot range %d-%d. Current metadata: %+v", messageID, modifiedNodeID, start, end, s.Metadata)
+		conn.Write([]byte(fmt.Sprintf("ERR: Node %s does not control slot range %d-%d.\n", modifiedNodeID, start, end)))
 		return
 	}
 
-	modifiedNode_replicaList := parts[7]
-	targetNode_replicaList := parts[8]
 	var Mreplicas []string
+	modifiedNode_replicaList := parts[7]
+	if modifiedNode_replicaList != "NONE" {
+		Mreplicas = strings.Split(modifiedNode_replicaList, ",")
+	}
+
 	var Treplicas []string
-	if modifiedNode_replicaList == "NONE" {
-		Mreplicas = []string{}
+	targetNode_replicaList := parts[8]
+	if targetNode_replicaList != "NONE" {
+		Treplicas = strings.Split(targetNode_replicaList, ",")
 	}
-	Mreplicas = strings.Split(modifiedNode_replicaList, ",")
 
-	if targetNode_replicaList == "NONE" {
-		Treplicas = []string{}
-	}
-	Treplicas = strings.Split(targetNode_replicaList, ",")
 
-	// Store the prepare message in the 'Prepared' map
 	s.Prepared[messageID] = &config.PrepareMessage{
 		MessageID:               messageID,
-		SourceNodeID:            s.ServerID, // This server is acting as the source for the prepare.
+		SourceNodeID:            s.ServerID,
 		TargetNodeID:            targetNodeID,
-		Addr:                    targetNodeAddr, // Addr of the new Node
+		Addr:                    targetNodeAddr,
 		Start:                   start,
 		End:                     end,
 		ModifiedNodeID:          modifiedNodeID,
 		ModifiedNodeReplicaList: Mreplicas,
 		TargetNodeReplicaList:   Treplicas,
 	}
-	log.Printf("PREPARE message %s received and accepted. State stored locally.", messageID)
+	log.Printf("PREPARE message %s received and accepted.", messageID)
 
 	msg := fmt.Sprintf("PREPARE SUCCESS %s", parts[1])
 	conn.Write([]byte(msg + "\n"))
@@ -101,23 +82,21 @@ func Prepare(newNode *config.Node, start, end uint16, modifiedNode *config.Node,
 	messageID := uuid.New().String()
 	// PREPARE MESSAGEID TargetNodeID ADDR START END ModifiedNodeID *old
 	// PREPARE MESSAGEID TargetNodeID ADDR START END ModifiedNodeID <ModifiedNode_new_replicaList> <NewNode_replica_list>
-	modifiedReplicaList := ""
-	targetReplicaList := ""
+
+	var modifiedReplicaList string
 	if len(modifiedNode_replica_list) == 0 {
 		modifiedReplicaList = "NONE"
 	} else {
-		for _, v := range modifiedNode_replica_list {
-			modifiedReplicaList = modifiedReplicaList + v + ","
-		}
+		modifiedReplicaList = strings.Join(modifiedNode_replica_list, ",")
 	}
 
+	var targetReplicaList string
 	if len(targetNode_replica_list) == 0 {
 		targetReplicaList = "NONE"
 	} else {
-		for _, v := range targetNode_replica_list {
-			targetReplicaList = targetReplicaList + v + ","
-		}
+		targetReplicaList = strings.Join(targetNode_replica_list, ",")
 	}
+
 	message := fmt.Sprintf("PREPARE %s %s %s %d %d %s %s %s\n",
 		messageID, newNode.ServerID, newNode.Addr, start, end, modifiedNode.ServerID, modifiedReplicaList, targetReplicaList)
 	expectedResp := fmt.Sprintf("PREPARE SUCCESS %s", messageID)

@@ -21,7 +21,7 @@ func HandleJoin(conn net.Conn, parts []string, s *config.Server) {
 
 	newNode := config.Node{ServerID: newServerID, Addr: newNodeAddr}
 
-	modifiedRangeIdx, startRangeForNewNode, endRangeForNewNode := DetermineRange(s)
+	modifiedRangeIdx, startRangeForNewNode, endRangeForNewNode, newReplicaList, modifiedServerReplicaList := DetermineRange(s)
 
 	// if len(s.Metadata[modifiedRangeIdx].Nodes) == 0 {
 	// 	conn.Write([]byte("ERR: JOIN failed. Selected slot range has no assigned nodes.\n"))
@@ -32,7 +32,7 @@ func HandleJoin(conn net.Conn, parts []string, s *config.Server) {
 	log.Printf("Joining node %s (addr: %s). Selected slot range %d-%d from node %s (addr: %s) to split.",
 		newNode.ServerID, newNode.Addr, startRangeForNewNode, endRangeForNewNode, modifiedNode.ServerID, modifiedNode.Addr)
 
-	mid, prepareSuccess, err := Prepare(&newNode, startRangeForNewNode, endRangeForNewNode, modifiedNode, s, []string{}, []string{})
+	mid, prepareSuccess, err := Prepare(&newNode, startRangeForNewNode, endRangeForNewNode, modifiedNode, s, modifiedServerReplicaList, newReplicaList)
 	if err != nil {
 		conn.Write([]byte(fmt.Sprintf("ERR: JOIN PREPARE(ERR) failed: %s\n", err.Error())))
 		log.Printf("Prepare err: %s", err.Error())
@@ -76,7 +76,9 @@ func HandleJoin(conn net.Conn, parts []string, s *config.Server) {
 
 		// SLOT <Start> <End> <Node1@Addr1>,<Node2@Addr2>,... (using ALL nodes in slot.Nodes) *old
 		// SLOT <Start> <End> <MasterNodeID> <Node1@Addr1>,<Node2@Addr2>,... (using ALL nodes in slot.Nodes)
-		msg := fmt.Sprintf("SLOT %d %d %s %s\n", slot.Start, slot.End, slot.MasterID, strings.Join(nodeInfos, ","))
+		masterNode := slot.MasterID +"@"+ s.Nodes[slot.MasterID].Addr
+		msg := fmt.Sprintf("SLOT %d %d %s %s\n", slot.Start, slot.End, masterNode, strings.Join(nodeInfos, ","))
+		fmt.Printf("Cluster Messages:%s\n", msg)
 		conn.Write([]byte(msg))
 	}
 	conn.Write([]byte("CLUSTER_METADATA_END\n"))

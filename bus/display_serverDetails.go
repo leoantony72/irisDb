@@ -17,14 +17,17 @@ func HandleShow(conn net.Conn, s *config.Server) {
 		conn.Write([]byte(msg))
 	}
 	conn.Write([]byte("--- Slot Ranges ---\n"))
+	fmt.Printf("Metadata:%v | lenNodes:%s\n", s.Metadata[2], len(s.Metadata[2].Nodes))
 	for _, sr := range s.Metadata {
 		nodeAddrs := []string{}
+		// fmt.Printf("all nODES:%v\n", sr.Nodes)
 		for _, node := range sr.Nodes {
-			fmt.Printf("@@Node:%s\n", node)
-			if node == "NONE"{
+			fmt.Printf("@@Node:%s999999\n", node)
+			if node == "NONE" {
 				nodeAddrs = append(nodeAddrs, "NONE")
 				break
 			}
+			fmt.Printf("Node:%s, Working:%s\n", node, s.Nodes[node])
 			nodeAddrs = append(nodeAddrs, fmt.Sprintf("%s@%s", s.Nodes[node].ServerID, s.Nodes[node].Addr))
 		}
 		nodesStr := strings.Join(nodeAddrs, ",")

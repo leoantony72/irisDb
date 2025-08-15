@@ -32,17 +32,18 @@ type PrepareMessage struct {
 }
 
 type Server struct {
-	ServerID        string
-	Host            string
-	Addr            string
-	Port            string
-	N               uint16           //hosh slots 2^14
-	Nnode           uint16           //number of nodes
-	Nodes           map[string]*Node //list of connected nodes
-	Metadata        []*SlotRange     //hash slots
-	Cluster_Version uint64
-	BusPort         string
-	Prepared        map[string]*PrepareMessage
+	ServerID          string
+	Host              string
+	Addr              string
+	Port              string
+	N                 uint16           //hosh slots 2^14
+	Nnode             uint16           //number of nodes
+	Nodes             map[string]*Node //list of connected nodes
+	Metadata          []*SlotRange     //hash slots
+	ReplicationFactor int
+	Cluster_Version   uint64
+	BusPort           string
+	Prepared          map[string]*PrepareMessage
 }
 
 func NewServer(name string) *Server {
@@ -92,6 +93,7 @@ func NewServer(name string) *Server {
 		Host:     ip,
 		BusPort:  selectedBusPort,
 		Nodes:    map[string]*Node{},
+		ReplicationFactor: 1,
 		Prepared: make(map[string]*PrepareMessage),
 	}
 
