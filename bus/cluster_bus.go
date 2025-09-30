@@ -4,12 +4,13 @@ import (
 	"bufio"
 	"io"
 	"iris/config"
+	"iris/engine"
 	"log"
 	"net"
 	"strings"
 )
 
-func NewBusRoute(server *config.Server) {
+func NewBusRoute(server *config.Server, db *engine.Engine) {
 	lis, err := net.Listen("tcp", ":"+server.BusPort)
 	if err != nil {
 		log.Fatalf("Coudn't start bus at port:%s, err: %s \n", server.BusPort, err.Error())
@@ -24,11 +25,11 @@ func NewBusRoute(server *config.Server) {
 			log.Printf("Coudn't accept connection, err:%s\n", err.Error())
 			continue
 		}
-		go handleConnection(conn, server)
+		go handleConnection(conn, server, db)
 	}
 }
 
-func handleConnection(conn net.Conn, server *config.Server) {
+func handleConnection(conn net.Conn, server *config.Server, db *engine.Engine) {
 	defer conn.Close()
 	reader := bufio.NewReader(conn)
 	for {
@@ -39,6 +40,6 @@ func handleConnection(conn net.Conn, server *config.Server) {
 			}
 			break
 		}
-		HandleClusterCommand(strings.TrimSpace(line), conn, server)
+		HandleClusterCommand(strings.TrimSpace(line), conn, server, db)
 	}
 }

@@ -13,11 +13,19 @@ func DetermineRange(s *config.Server) (int, uint16, uint16, []string, []string) 
 		log.Fatal("No nodes or metadata found to determine range from. Cluster is empty?")
 	}
 
+	//determine replica for the coordinating server if the len(replica) < replicationFactor
+	_,_, replicas := s.FindHandlingRanges()
+	if len(replicas) < s.ReplicationFactor{
+		
+	}
+
 	// Iterate to find a range that can actually be split (has more than 1 slot)
 	var selectedIdx int
 	var selectedRange *config.SlotRange
 	attempts := 0
 	maxAttempts := 100
+
+
 
 	for attempts < maxAttempts {
 		selectedIdx = rand.Intn(len(s.Metadata))
@@ -64,9 +72,9 @@ func DetermineRange(s *config.Server) (int, uint16, uint16, []string, []string) 
 func selectReplicas(s *config.Server) []string {
     candidates := []string{}
     for _, node := range s.Nodes {
-        if node.ServerID != s.ServerID {
+        // if node.ServerID != s.ServerID {
             candidates = append(candidates, node.ServerID)
-        }
+        // }
     }
 
     if len(candidates) <= s.ReplicationFactor {

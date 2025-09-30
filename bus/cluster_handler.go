@@ -3,12 +3,13 @@ package bus
 import (
 	"fmt"
 	"iris/config"
+	"iris/engine"
 	"net"
 	"sort"
 	"strings"
 )
 
-func HandleClusterCommand(cmd string, conn net.Conn, s *config.Server) {
+func HandleClusterCommand(cmd string, conn net.Conn, s *config.Server, db *engine.Engine) {
 	parts := strings.Fields(cmd)
 	if len(parts) == 0 {
 		conn.Write([]byte("ERR empty command\n"))
@@ -24,6 +25,10 @@ func HandleClusterCommand(cmd string, conn net.Conn, s *config.Server) {
 	case "PREPARE":
 		{
 			HandlePrepare(conn, parts, s)
+		}
+	case "REP":
+		{
+			HandleReplication(conn, parts, s, db)
 		}
 
 	case "COMMIT":
@@ -61,7 +66,7 @@ func applyCommitChanges(s *config.Server, preparedMsg *config.PrepareMessage) er
 	for i, sr := range s.Metadata {
 		if sr.MasterID == preparedMsg.ModifiedNodeID &&
 			preparedMsg.Start >= sr.Start && preparedMsg.End == sr.End &&
-			preparedMsg.Start > sr.Start { 
+			preparedMsg.Start > sr.Start {
 			modifiedRangeIdx = i
 			break
 		}

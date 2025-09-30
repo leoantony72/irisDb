@@ -24,11 +24,11 @@ func main() {
 	flag.Parse()
 
 	ID := uuid.New()
-	server := config.NewServer(ID.String())
 	IrisDb, err := engine.NewEngine()
 	if err != nil {
 		log.Fatalf("Failed to init Pebble DB: %v", err)
 	}
+	server := config.NewServer(ID.String())
 	defer IrisDb.Close()
 
 	lis, err := net.Listen("tcp", ":"+server.Port)
@@ -38,7 +38,7 @@ func main() {
 	}
 	defer lis.Close()
 	log.Printf("IrisDb started at port:%s \n", server.Port)
-	go bus.NewBusRoute(server)
+	go bus.NewBusRoute(server, IrisDb)
 
 	if *clusterAddr != "" {
 		err := joinCluster(*clusterAddr, server)
