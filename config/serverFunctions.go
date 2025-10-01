@@ -18,8 +18,7 @@ func (s *Server) SendReplicaCMD(cmd string, replicaID string) bool {
 		return false
 	}
 
-	msg := fmt.Sprintf("REP %s", cmd)
-	conn.Write([]byte(msg))
+	conn.Write([]byte(cmd))
 
 	response := make([]byte, 1024)
 	n, err := conn.Read(response)

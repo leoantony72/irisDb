@@ -105,6 +105,7 @@ func (e *Engine) HandleCommand(cmd string, conn net.Conn, server *config.Server)
 				for _, id := range replica_server {
 					success = server.SendReplicaCMD(replication_cmd, id)
 					if !success {
+						fmt.Println("rep failed")
 						break
 					}
 				}
@@ -130,7 +131,7 @@ func (e *Engine) HandleCommand(cmd string, conn net.Conn, server *config.Server)
 					return
 				}
 
-				expectedResponse := fmt.Sprintf("ACK %s", parts[1])
+				expectedResponse := "ACK REP"
 
 				reader := bufio.NewReader(Sconn)
 				resp, _ := reader.ReadString('\n')
@@ -138,6 +139,7 @@ func (e *Engine) HandleCommand(cmd string, conn net.Conn, server *config.Server)
 				Sconn.Close()
 
 				if resp != expectedResponse {
+					fmt.Printf("res: %s, %s\n", resp, expectedResponse)
 					errMsg := fmt.Sprintf("ERR write failed: %s\n", "Err Response From Master Server")
 					conn.Write([]byte(errMsg))
 					return
