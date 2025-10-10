@@ -34,3 +34,15 @@ func (s *Server) SendReplicaCMD(cmd string, replicaID string) bool {
 	}
 	return true
 }
+
+// FindRangeIndex returns the index of the SlotRange in s.Metadata
+// that matches the given start and end values.
+// If no match is found, it returns -1.
+func (s *Server) FindRangeIndex(start, end uint16) int {
+	for i, r := range s.Metadata {
+		if r.Start == start && r.End == end {
+			return i
+		}
+	}
+	return -1
+}

@@ -14,6 +14,6 @@ func HandleINS(conn net.Conn, parts []string, server *config.Server, db *engine.
 		conn.Write([]byte("Err: Incorrect Format: INS KEY VALUE"))
 		return
 	}
-	fmt.Println("RECEIVED FORWARD REQ: KEY//%s", parts[1])
+	fmt.Printf("RECEIVED FORWARD REQ: KEY//%s\n", parts[1])
 	db.Set(parts[1], parts[2], conn)
 }

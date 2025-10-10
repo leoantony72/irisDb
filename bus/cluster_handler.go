@@ -51,6 +51,11 @@ func HandleClusterCommand(cmd string, conn net.Conn, s *config.Server, db *engin
 			HandleINS(conn, parts, s, db)
 		}
 
+	case "CMU":
+		{
+			HandleClusterMetdataUpdate(conn, parts, s)
+		}
+
 	default:
 		conn.Write([]byte("ERR unknown command\n"))
 	}

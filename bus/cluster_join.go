@@ -23,7 +23,7 @@ func HandleJoin(conn net.Conn, parts []string, s *config.Server) {
 
 	if(!s.ReplicationValidator()){
 		//current server has bootstrap problem in replication
-		
+		s.RepairReplication()
 	}
 
 	modifiedRangeIdx, startRangeForNewNode, endRangeForNewNode, newReplicaList, modifiedServerReplicaList := DetermineRange(s)
