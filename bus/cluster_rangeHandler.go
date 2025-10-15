@@ -14,9 +14,9 @@ func DetermineRange(s *config.Server) (int, uint16, uint16, []string, []string) 
 	}
 
 	//determine replica for the coordinating server if the len(replica) < replicationFactor
-	_,_, replicas := s.FindHandlingRanges()
-	if len(replicas) < s.ReplicationFactor{
-		
+	_, _, replicas := s.FindHandlingRanges()
+	if len(replicas) < s.ReplicationFactor {
+
 	}
 
 	// Iterate to find a range that can actually be split (has more than 1 slot)
@@ -24,8 +24,6 @@ func DetermineRange(s *config.Server) (int, uint16, uint16, []string, []string) 
 	var selectedRange *config.SlotRange
 	attempts := 0
 	maxAttempts := 100
-
-
 
 	for attempts < maxAttempts {
 		selectedIdx = rand.Intn(len(s.Metadata))
@@ -64,25 +62,23 @@ func DetermineRange(s *config.Server) (int, uint16, uint16, []string, []string) 
 
 	newReplicaServer := selectReplicas(s)
 
-
 	return selectedIdx, newRangeStart, newRangeEnd, newReplicaServer, s.Metadata[selectedIdx].Nodes
 }
 
-
 func selectReplicas(s *config.Server) []string {
-    candidates := []string{}
-    for _, node := range s.Nodes {
-        // if node.ServerID != s.ServerID {
-            candidates = append(candidates, node.ServerID)
-        // }
-    }
+	candidates := []string{}
+	for _, node := range s.Nodes {
+		// if node.ServerID != s.ServerID {
+		candidates = append(candidates, node.ServerID)
+		// }
+	}
 
-    if len(candidates) <= s.ReplicationFactor {
-        return candidates
-    }
+	if len(candidates) <= s.ReplicationFactor {
+		return candidates
+	}
 
-    rand.Shuffle(len(candidates), func(i, j int) {
-        candidates[i], candidates[j] = candidates[j], candidates[i]
-    })
-    return candidates[:s.ReplicationFactor]
+	rand.Shuffle(len(candidates), func(i, j int) {
+		candidates[i], candidates[j] = candidates[j], candidates[i]
+	})
+	return candidates[:s.ReplicationFactor]
 }

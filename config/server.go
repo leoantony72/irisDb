@@ -46,7 +46,6 @@ type Server struct {
 	Prepared          map[string]*PrepareMessage
 }
 
-
 func NewServer(name string) *Server {
 	ip, err := utils.GetLocalIp()
 	if err != nil {

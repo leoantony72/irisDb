@@ -8,6 +8,7 @@ import (
 	"log"
 	"net"
 	"strings"
+	"time"
 
 	"iris/bus"
 	"iris/config"
@@ -46,6 +47,16 @@ func main() {
 			log.Printf("Warning: failed to join cluster at %s: %v", *clusterAddr, err)
 		}
 	}
+
+	go func() {
+		for {
+			time.Sleep(10 * time.Second)
+			log.Printf("[✅INFO]: RUNNING REPLICA VALIDATOR\n")
+			if !server.ReplicationValidator() {
+				server.RepairReplication()
+			}
+		}
+	}()
 
 	for {
 		conn, err := lis.Accept()

@@ -102,7 +102,6 @@ func HandleIncomingClusterMetadata(reader *bufio.Reader, s *config.Server) error
 		})
 	}
 
-
 	s.Metadata = newMetadata
 	s.Nodes = newNodeMap
 
@@ -113,7 +112,6 @@ func HandleIncomingClusterMetadata(reader *bufio.Reader, s *config.Server) error
 
 	s.Nnode = uint16(len(s.Nodes))
 	s.Cluster_Version++ // Increment version as metadata is updated
-
 
 	log.Printf("Successfully updated metadata. New Cluster Version: %d, Nodes: %d, Slot Ranges: %d",
 		s.Cluster_Version, s.Nnode, len(s.Metadata))

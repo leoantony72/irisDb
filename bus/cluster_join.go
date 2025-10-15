@@ -21,11 +21,6 @@ func HandleJoin(conn net.Conn, parts []string, s *config.Server) {
 
 	newNode := config.Node{ServerID: newServerID, Addr: newNodeAddr}
 
-	if(!s.ReplicationValidator()){
-		//current server has bootstrap problem in replication
-		s.RepairReplication()
-	}
-
 	modifiedRangeIdx, startRangeForNewNode, endRangeForNewNode, newReplicaList, modifiedServerReplicaList := DetermineRange(s)
 
 	// if len(s.Metadata[modifiedRangeIdx].Nodes) == 0 {
@@ -81,7 +76,7 @@ func HandleJoin(conn net.Conn, parts []string, s *config.Server) {
 
 		// SLOT <Start> <End> <Node1@Addr1>,<Node2@Addr2>,... (using ALL nodes in slot.Nodes) *old
 		// SLOT <Start> <End> <MasterNodeID> <Node1@Addr1>,<Node2@Addr2>,... (using ALL nodes in slot.Nodes)
-		masterNode := slot.MasterID +"@"+ s.Nodes[slot.MasterID].Addr
+		masterNode := slot.MasterID + "@" + s.Nodes[slot.MasterID].Addr
 		msg := fmt.Sprintf("SLOT %d %d %s %s\n", slot.Start, slot.End, masterNode, strings.Join(nodeInfos, ","))
 		fmt.Printf("Cluster Messages:%s\n", msg)
 		conn.Write([]byte(msg))

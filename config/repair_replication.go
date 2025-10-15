@@ -42,6 +42,7 @@ func (s *Server) RepairReplication() {
 		log.Printf("[WARN] Server %s: no available nodes for new replicas (cluster too small)", s.ServerID)
 		return
 	}
+	log.Printf("❎[INFO] GETTING IN\n")
 
 	//Not enough nodes to fully satisfy replication factor
 	if len(replicaNodes)+len(candidates) < required {
@@ -79,24 +80,26 @@ func (s *Server) RepairReplication() {
 			continue
 		}
 
-		msg := fmt.Sprintf("CMU ADD REP %s %s %s", s.ServerID, strconv.FormatUint(uint64(start), 10), strconv.FormatUint(uint64(end), 10))
-		conn.Write([]byte(msg))
+		msg := fmt.Sprintf("CMU REP ADD %s %s %s", newReplicas[0], strconv.FormatUint(uint64(start), 10), strconv.FormatUint(uint64(end), 10))
+		conn.Write([]byte(msg + "\n"))
 
 		response := make([]byte, 1024)
 		n, err := conn.Read(response)
 		if err != nil {
-			fmt.Printf("SendReplicaCMD:failed to read from peer(ID:%s) %s: %w\n", s.ServerID, addr, err.Error())
+			fmt.Printf("SendReplicaCMD:failed to read from peer(ID:%s) %s: %s\n", s.ServerID, addr, err.Error())
 			conn.Close()
 			return
 		}
 
 		str := strings.TrimSpace(string(response[:n]))
-		if str != "ACK REP" {
-			fmt.Printf("SendReplicaCMD:failed to get ACK for cmd:CMU REP ADD\n")
+		if str != "CMU ACK" {
+			log.Printf("SendReplicaCMD:failed to get ACK for cmd:CMU REP ADD\n")
 			conn.Close()
 			return
 		}
 
-		fmt.Println("[CMU REP UPDATE] for %s SUCCESS", addr)
+		fmt.Printf("[CMU REP UPDATE] for %s SUCCESS\n", addr)
 	}
+	idx := s.FindRangeIndex(start, end)
+	s.Metadata[idx].Nodes = append(s.Metadata[idx].Nodes, newReplicas[0])
 }
