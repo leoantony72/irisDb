@@ -4,6 +4,8 @@ import (
 	"iris/utils"
 	"log"
 	"net"
+
+	"github.com/google/uuid"
 )
 
 type Node struct {
@@ -46,7 +48,8 @@ type Server struct {
 	Prepared          map[string]*PrepareMessage
 }
 
-func NewServer(name string) *Server {
+func NewServer() *Server {
+	name := uuid.New().String()
 	ip, err := utils.GetLocalIp()
 	if err != nil {
 		log.Fatalf("Couldn't configure the database: %v", err)

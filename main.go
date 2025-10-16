@@ -14,8 +14,6 @@ import (
 	"iris/config"
 	"iris/engine"
 	"iris/utils"
-
-	"github.com/google/uuid"
 )
 
 var Peers []*config.Node
@@ -24,13 +22,13 @@ func main() {
 	clusterAddr := flag.String("cluster_server", "", "Address of a server in the cluster to join (optional)")
 	flag.Parse()
 
-	ID := uuid.New()
 	IrisDb, err := engine.NewEngine()
 	if err != nil {
 		log.Fatalf("Failed to init Pebble DB: %v", err)
 	}
-	server := config.NewServer(ID.String())
 	defer IrisDb.Close()
+
+	server := config.NewServer()
 
 	lis, err := net.Listen("tcp", ":"+server.Port)
 	if err != nil {
