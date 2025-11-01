@@ -46,3 +46,12 @@ func (s *Server) FindRangeIndex(start, end uint16) int {
 	}
 	return -1
 }
+
+func (s *Server) FindRangeIndexByServerID(serverID string) int {
+	for i, r := range s.Metadata {
+		if r.MasterID == serverID {
+			return i
+		}
+	}
+	return -1
+}

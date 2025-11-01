@@ -19,12 +19,14 @@ func HandleClusterCommand(cmd string, conn net.Conn, s *config.Server, db *engin
 	switch strings.ToUpper(parts[0]) {
 	case "JOIN":
 		{
-			HandleJoin(conn, parts, s)
+			HandleJoin(conn, parts, s, db)
+			db.SaveServerMetadata(s)
 		}
 
 	case "PREPARE":
 		{
 			HandlePrepare(conn, parts, s)
+			db.SaveServerMetadata(s)
 		}
 	case "REP":
 		{
@@ -34,6 +36,7 @@ func HandleClusterCommand(cmd string, conn net.Conn, s *config.Server, db *engin
 	case "COMMIT":
 		{
 			HandleCommit(conn, parts, s)
+			db.SaveServerMetadata(s)
 		}
 
 	case "SHOW":
@@ -54,6 +57,7 @@ func HandleClusterCommand(cmd string, conn net.Conn, s *config.Server, db *engin
 	case "CMU":
 		{
 			HandleClusterMetdataUpdate(conn, parts, s)
+			db.SaveServerMetadata(s)
 		}
 
 	default:

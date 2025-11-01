@@ -3,15 +3,27 @@ package bus
 import (
 	"fmt"
 	"iris/config"
+	"iris/engine"
 	"log"
 	"net"
-	"strconv"
 	"strings"
 )
 
-func HandleJoin(conn net.Conn, parts []string, s *config.Server) {
+func HandleJoin(conn net.Conn, parts []string, s *config.Server, db *engine.Engine) {
 	if len(parts) != 3 {
 		conn.Write([]byte("ERR usage: JOIN <SERVER_ID> <PORT>\n"))
+		return
+	}
+	if _, ok := s.Nodes[parts[1]]; ok {
+		log.Printf("🧀SERVER ID:%s REJOINED SUCESSFULLY", parts[1])
+		err := sendClusterMetadata(conn, s)
+		if err != nil {
+			log.Println("Error sending cluster metadata:", err)
+			return
+		}
+		idx := s.FindRangeIndexByServerID(parts[1])
+		details := s.Metadata[idx]
+		sendReJoinSuccess(conn, parts[1], int(details.Start), int(details.End))
 		return
 	}
 	ip, _, _ := net.SplitHostPort(conn.RemoteAddr().String())
@@ -45,7 +57,7 @@ func HandleJoin(conn net.Conn, parts []string, s *config.Server) {
 	}
 	log.Printf("PREPARE successful for new node %s, MessageID: %s", newNode.ServerID, mid)
 
-	commitSuccess, err := commit(mid, s)
+	commitSuccess, err := commit(mid, s, db)
 	if err != nil {
 		conn.Write([]byte(fmt.Sprintf("ERR: JOIN COMMIT(ERR) failed: %s\n", err.Error())))
 		log.Printf("Commit err: %s", err.Error())
@@ -62,9 +74,47 @@ func HandleJoin(conn net.Conn, parts []string, s *config.Server) {
 	log.Printf("Cluster metadata updated. New version: %d, Nodes: %d, Slot Ranges: %d",
 		s.Cluster_Version, len(s.Nodes), len(s.Metadata))
 
-	conn.Write([]byte("CLUSTER_METADATA_BEGIN\n"))
+	err = sendClusterMetadata(conn, s)
+	if err != nil {
+		log.Println("Error sending cluster metadata:", err)
+	}
+
+	err = sendJoinSuccess(conn, newServerID, int(startRangeForNewNode), int(endRangeForNewNode))
+	if err != nil {
+		log.Println("Error:", err)
+	}
+}
+
+func sendJoinSuccess(conn net.Conn, newServerID string, startRange, endRange int) error {
+	msg := fmt.Sprintf("JOIN_SUCCESS %d %d", startRange, endRange)
+	if _, err := conn.Write([]byte(msg + "\n")); err != nil {
+		return fmt.Errorf("failed to send JOIN_SUCCESS to %s: %w", newServerID, err)
+	}
+
+	log.Printf("JOIN command completed successfully for %s", newServerID)
+	return nil
+}
+
+func sendReJoinSuccess(conn net.Conn, ServerID string, startRange, endRange int) error {
+	msg := fmt.Sprintf("JOIN_SUCCESS %d %d", startRange, endRange)
+	if _, err := conn.Write([]byte(msg + "\n")); err != nil {
+		return fmt.Errorf("failed to send REJOIN")
+	}
+
+	log.Printf("JOIN command completed successfully for %s", ServerID)
+	return nil
+}
+
+func sendClusterMetadata(conn net.Conn, s *config.Server) error {
+	// Start of metadata transmission
+	_, err := conn.Write([]byte("CLUSTER_METADATA_BEGIN\n"))
+	if err != nil {
+		return fmt.Errorf("failed to write cluster metadata start: %w", err)
+	}
+
 	for _, slot := range s.Metadata {
 		var nodeInfos []string
+
 		if len(slot.Nodes) > 0 {
 			for _, node := range slot.Nodes {
 				nodeInfo := fmt.Sprintf("%s@%s", s.Nodes[node].ServerID, s.Nodes[node].Addr)
@@ -74,16 +124,24 @@ func HandleJoin(conn net.Conn, parts []string, s *config.Server) {
 			nodeInfos = append(nodeInfos, "NONE")
 		}
 
-		// SLOT <Start> <End> <Node1@Addr1>,<Node2@Addr2>,... (using ALL nodes in slot.Nodes) *old
-		// SLOT <Start> <End> <MasterNodeID> <Node1@Addr1>,<Node2@Addr2>,... (using ALL nodes in slot.Nodes)
+		// Build master node info
 		masterNode := slot.MasterID + "@" + s.Nodes[slot.MasterID].Addr
-		msg := fmt.Sprintf("SLOT %d %d %s %s\n", slot.Start, slot.End, masterNode, strings.Join(nodeInfos, ","))
-		fmt.Printf("Cluster Messages:%s\n", msg)
-		conn.Write([]byte(msg))
-	}
-	conn.Write([]byte("CLUSTER_METADATA_END\n"))
 
-	msg := fmt.Sprintf("JOIN_SUCCESS %s %s", strconv.Itoa(int(startRangeForNewNode)), strconv.Itoa(int(endRangeForNewNode)))
-	conn.Write([]byte(msg + "\n"))
-	log.Printf("JOIN command completed successfully for %s", newServerID)
+		// Format: SLOT <Start> <End> <MasterNodeID> <Node1@Addr1>,<Node2@Addr2>,...
+		msg := fmt.Sprintf("SLOT %d %d %s %s\n", slot.Start, slot.End, masterNode, strings.Join(nodeInfos, ","))
+
+		fmt.Printf("Cluster Message: %s\n", msg)
+
+		_, err = conn.Write([]byte(msg))
+		if err != nil {
+			return fmt.Errorf("failed to write slot info: %w", err)
+		}
+
+	}
+	_, err = conn.Write([]byte("CLUSTER_METADATA_END\n"))
+	if err != nil {
+		return fmt.Errorf("failed to write cluster metadata start: %w", err)
+	}
+
+	return nil
 }

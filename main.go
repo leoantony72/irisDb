@@ -27,8 +27,13 @@ func main() {
 		log.Fatalf("Failed to init Pebble DB: %v", err)
 	}
 	defer IrisDb.Close()
-
-	server := config.NewServer()
+	var server *config.Server
+	loaded_data, err := CheckAndLoadMetadata(IrisDb)
+	if err == nil {
+		server = loaded_data
+	} else {
+		server = config.NewServer()
+	}
 
 	lis, err := net.Listen("tcp", ":"+server.Port)
 	if err != nil {
@@ -36,7 +41,9 @@ func main() {
 		//exits
 	}
 	defer lis.Close()
-	log.Printf("IrisDb started at port:%s \n", server.Port)
+	log.Printf("🍔IrisDb started at port:%s \n", server.Port)
+	log.Printf("📦Server ID:%s\n", server.ServerID)
+
 	go bus.NewBusRoute(server, IrisDb)
 
 	if *clusterAddr != "" {
@@ -48,7 +55,7 @@ func main() {
 
 	go func() {
 		for {
-			time.Sleep(10 * time.Second)
+			time.Sleep(30 * time.Second)
 			log.Printf("[✅INFO]: RUNNING REPLICA VALIDATOR\n")
 			if !server.ReplicationValidator() {
 				server.RepairReplication()
@@ -133,7 +140,16 @@ func joinCluster(addr string, server *config.Server) error {
 	parts := strings.Fields(responseLine)
 
 	//Expected:JOIN_SUCCESS <start_slot> <end_slot>
-	if len(parts) != 3 || parts[0] != "JOIN_SUCCESS" {
+	//or
+	//Expected: REJOIN_SUCCESS
+	if len(parts) > 3{
+		log.Printf("Error: Unexpected JOIN response format: %q", responseLine)
+		return fmt.Errorf("unexpected JOIN response: %s", responseLine)
+	}
+
+	if parts[0] == "JOIN_SUCCESS" || parts[0] == "REJOIN_SUCCESS" {
+		// ✅ Valid success
+	} else {
 		log.Printf("Error: Unexpected JOIN response format: %q", responseLine)
 		return fmt.Errorf("unexpected JOIN response: %s", responseLine)
 	}

@@ -3,6 +3,7 @@ package bus
 import (
 	"fmt"
 	"iris/config"
+	"iris/engine"
 	"iris/utils"
 	"log"
 	"net"
@@ -76,7 +77,7 @@ func HandleCommit(conn net.Conn, parts []string, s *config.Server) {
 }
 
 // sends a COMMIT message to all other nodes in the cluster.
-func commit(mid string, s *config.Server) (bool, error) {
+func commit(mid string, s *config.Server, db *engine.Engine) (bool, error) {
 	msg := fmt.Sprintf("COMMIT %s\n", mid)
 
 	for _, node := range s.Nodes {
@@ -127,5 +128,6 @@ func commit(mid string, s *config.Server) (bool, error) {
 		return false, fmt.Errorf("local commit failed: %s", err.Error())
 	}
 	log.Printf("Local commit for MessageID %s succeeded.", mid)
+	db.SaveServerMetadata(s)
 	return true, nil
 }
