@@ -11,6 +11,8 @@ import (
 	"time"
 )
 
+// RepairReplication checks if the handling range has enough replica
+// nodes, If yes continue else assigns replica until numberOfReplica == Replication Factor
 func (s *Server) RepairReplication() {
 	start, end, replicaNodes := s.FindHandlingRanges() //existing replicas
 
@@ -27,6 +29,7 @@ func (s *Server) RepairReplication() {
 	}
 
 	candidates := []string{}
+	s.mu.RLock()
 	for _, node := range s.Nodes {
 		if node.ServerID == s.ServerID {
 			continue
@@ -36,7 +39,7 @@ func (s *Server) RepairReplication() {
 		}
 		candidates = append(candidates, node.ServerID)
 	}
-
+	s.mu.RUnlock()
 	//Not enough nodes in cluster
 	if len(candidates) == 0 {
 		log.Printf("[WARN] Server %s: no available nodes for new replicas (cluster too small)", s.ServerID)
@@ -66,7 +69,14 @@ func (s *Server) RepairReplication() {
 		log.Printf("[INFO] Assigning %s as new replica for server %s", replicaID, s.ServerID)
 	}
 
+	s.mu.RLock()
+	nodes := make([]*Node, 0, len(s.Nodes))
 	for _, node := range s.Nodes {
+		nodes = append(nodes, node)
+	}
+	s.mu.RUnlock()
+
+	for _, node := range nodes {
 		if node.ServerID == s.ServerID {
 			continue
 		}
@@ -75,8 +85,6 @@ func (s *Server) RepairReplication() {
 		conn, err := net.DialTimeout("tcp", addr, 2*time.Second)
 		if err != nil {
 			fmt.Printf("ERR: RepairReplication: %s\n", err.Error())
-			// return false
-			conn.Close()
 			continue
 		}
 
@@ -100,6 +108,9 @@ func (s *Server) RepairReplication() {
 
 		fmt.Printf("[CMU REP UPDATE] for %s SUCCESS\n", addr)
 	}
+
 	idx := s.FindRangeIndex(start, end)
+	s.mu.Lock()
 	s.Metadata[idx].Nodes = append(s.Metadata[idx].Nodes, newReplicas[0])
+	s.mu.Unlock()
 }

@@ -10,7 +10,9 @@ import (
 
 // Sends the cmd(SET, DEL) to the replica's
 func (s *Server) SendReplicaCMD(cmd string, replicaID string) bool {
+	s.mu.RLock()
 	r := s.Nodes[replicaID]
+	s.mu.RUnlock()
 	busaddr, _ := utils.BumpPort(r.Addr, 10000)
 	conn, err := net.DialTimeout("tcp", busaddr, 2*time.Second)
 	if err != nil {
@@ -39,6 +41,8 @@ func (s *Server) SendReplicaCMD(cmd string, replicaID string) bool {
 // that matches the given start and end values.
 // If no match is found, it returns -1.
 func (s *Server) FindRangeIndex(start, end uint16) int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	for i, r := range s.Metadata {
 		if r.Start == start && r.End == end {
 			return i
@@ -49,13 +53,15 @@ func (s *Server) FindRangeIndex(start, end uint16) int {
 
 // FindRangeIndexByServerId finds and returns all the range indexes
 // for which the given serverID is the master.
-// Replica ranges are not returned. 
+// Replica ranges are not returned.
 func (s *Server) FindRangeIndexByServerID(serverID string) []int {
-    var indices []int
-    for i, r := range s.Metadata {
-        if r.MasterID == serverID {
-            indices = append(indices, i)
-        }
-    }
-    return indices
+	var indices []int
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for i, r := range s.Metadata {
+		if r.MasterID == serverID {
+			indices = append(indices, i)
+		}
+	}
+	return indices
 }

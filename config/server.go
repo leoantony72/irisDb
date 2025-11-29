@@ -1,10 +1,14 @@
 package config
 
+import "sync"
+
 type Node struct {
 	ServerID string
 	Addr     string
 }
 
+// SlotRange defines each range, masterID and Replica Nodes
+// of each available range in the network
 type SlotRange struct {
 	Start    uint16
 	End      uint16
@@ -23,6 +27,7 @@ type PrepareMessage struct {
 	ModifiedNodeID          string // ID of the node from which the slots for the new nodes are taken
 	ModifiedNodeReplicaList []string
 	TargetNodeReplicaList   []string
+	mu                      *sync.RWMutex
 }
 
 type Server struct {
@@ -38,5 +43,5 @@ type Server struct {
 	Cluster_Version   uint64
 	BusPort           string
 	Prepared          map[string]*PrepareMessage
+	mu                *sync.RWMutex
 }
-
