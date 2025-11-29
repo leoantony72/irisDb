@@ -14,16 +14,17 @@ func HandleJoin(conn net.Conn, parts []string, s *config.Server, db *engine.Engi
 		conn.Write([]byte("ERR usage: JOIN <SERVER_ID> <PORT>\n"))
 		return
 	}
-	if _, ok := s.Nodes[parts[1]]; ok {
-		log.Printf("🧀SERVER ID:%s REJOINED SUCESSFULLY", parts[1])
+	serverID := parts[1]
+	if _, ok := s.Nodes[serverID]; ok {
+		log.Printf("🧀SERVER ID:%s REJOINED SUCESSFULLY", serverID)
 		err := sendClusterMetadata(conn, s)
 		if err != nil {
 			log.Println("Error sending cluster metadata:", err)
 			return
 		}
-		idx := s.FindRangeIndexByServerID(parts[1])
-		details := s.Metadata[idx]
-		sendReJoinSuccess(conn, parts[1], int(details.Start), int(details.End))
+
+		rangeIndices := s.FindRangeIndexByServerID(serverID)
+		sendReJoinSuccess(s, conn, serverID, rangeIndices)
 		return
 	}
 	ip, _, _ := net.SplitHostPort(conn.RemoteAddr().String())
@@ -35,11 +36,6 @@ func HandleJoin(conn net.Conn, parts []string, s *config.Server, db *engine.Engi
 
 	modifiedRangeIdx, startRangeForNewNode, endRangeForNewNode, newReplicaList, modifiedServerReplicaList := DetermineRange(s)
 
-	// if len(s.Metadata[modifiedRangeIdx].Nodes) == 0 {
-	// 	conn.Write([]byte("ERR: JOIN failed. Selected slot range has no assigned nodes.\n"))
-	// 	return
-	// }
-	// modifiedNode := s.Metadata[modifiedRangeIdx].Nodes[0]
 	modifiedNode := s.Nodes[s.Metadata[modifiedRangeIdx].MasterID]
 	log.Printf("Joining node %s (addr: %s). Selected slot range %d-%d from node %s (addr: %s) to split.",
 		newNode.ServerID, newNode.Addr, startRangeForNewNode, endRangeForNewNode, modifiedNode.ServerID, modifiedNode.Addr)
@@ -95,9 +91,17 @@ func sendJoinSuccess(conn net.Conn, newServerID string, startRange, endRange int
 	return nil
 }
 
-func sendReJoinSuccess(conn net.Conn, ServerID string, startRange, endRange int) error {
-	msg := fmt.Sprintf("JOIN_SUCCESS %d %d", startRange, endRange)
-	if _, err := conn.Write([]byte(msg + "\n")); err != nil {
+func sendReJoinSuccess(s *config.Server, conn net.Conn, ServerID string, ranges []int) error {
+
+	var b strings.Builder
+
+	fmt.Fprintf(&b, "JOIN_SUCCESS %d", len(ranges))
+
+	for _, r := range ranges {
+		fmt.Fprintf(&b, " %d %d", s.Metadata[r].Start, s.Metadata[r].End)
+	}
+
+	if _, err := conn.Write([]byte(b.String() + "\n")); err != nil {
 		return fmt.Errorf("failed to send REJOIN")
 	}
 

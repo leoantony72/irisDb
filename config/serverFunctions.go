@@ -47,11 +47,15 @@ func (s *Server) FindRangeIndex(start, end uint16) int {
 	return -1
 }
 
-func (s *Server) FindRangeIndexByServerID(serverID string) int {
-	for i, r := range s.Metadata {
-		if r.MasterID == serverID {
-			return i
-		}
-	}
-	return -1
+// FindRangeIndexByServerId finds and returns all the range indexes
+// for which the given serverID is the master.
+// Replica ranges are not returned. 
+func (s *Server) FindRangeIndexByServerID(serverID string) []int {
+    var indices []int
+    for i, r := range s.Metadata {
+        if r.MasterID == serverID {
+            indices = append(indices, i)
+        }
+    }
+    return indices
 }

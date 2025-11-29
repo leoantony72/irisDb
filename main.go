@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"strconv"
 	"strings"
 	"time"
 
@@ -141,12 +142,7 @@ func joinCluster(addr string, server *config.Server) error {
 
 	//Expected:JOIN_SUCCESS <start_slot> <end_slot>
 	//or
-	//Expected: REJOIN_SUCCESS
-	if len(parts) > 3{
-		log.Printf("Error: Unexpected JOIN response format: %q", responseLine)
-		return fmt.Errorf("unexpected JOIN response: %s", responseLine)
-	}
-
+	//Expected: REJOIN_SUCCESS count <start_slot> <end_slot> ...
 	if parts[0] == "JOIN_SUCCESS" || parts[0] == "REJOIN_SUCCESS" {
 		// ✅ Valid success
 	} else {
@@ -154,15 +150,37 @@ func joinCluster(addr string, server *config.Server) error {
 		return fmt.Errorf("unexpected JOIN response: %s", responseLine)
 	}
 
-	assignedStart, err := utils.ParseUint16(parts[1])
-	if err != nil {
-		return fmt.Errorf("invalid start slot in JOIN_SUCCESS: %w", err)
-	}
-	assignedEnd, err := utils.ParseUint16(parts[2])
-	if err != nil {
-		return fmt.Errorf("invalid end slot in JOIN_SUCCESS: %w", err)
+	if parts[0] == "JOIN_SUCCESS" {
+
+		assignedStart, err := utils.ParseUint16(parts[1])
+		if err != nil {
+			return fmt.Errorf("invalid start slot in JOIN_SUCCESS: %w", err)
+		}
+		assignedEnd, err := utils.ParseUint16(parts[2])
+		if err != nil {
+			return fmt.Errorf("invalid end slot in JOIN_SUCCESS: %w", err)
+		}
+
+		log.Printf("✅ Successfully joined cluster via %s. This server (%s) is responsible for SlotRange [%d - %d].", addr, server.ServerID, assignedStart, assignedEnd)
+	} else {
+
+		if len(parts) < 4 {
+			log.Printf("Error: Unexpected REJOIN response format: %q", responseLine)
+			return fmt.Errorf("unexpected REJOIN response: %s", responseLine)
+		}
+
+		count, _ := strconv.Atoi(parts[0])
+		var b strings.Builder
+		for i := 0; i < count; i++ {
+			start, _ := strconv.Atoi(parts[2+2*i])
+			end, _ := strconv.Atoi(parts[3+2*i])
+
+			fmt.Fprintf(&b, " [%d-%d]", start, end)
+		}
+
+		log.Printf("✅ Successfully joined cluster via %s. This server (%s) is responsible for SlotRange %s", addr, server.ServerID, b.String())
+
 	}
 
-	log.Printf("✅ Successfully joined cluster via %s. This server (%s) is responsible for SlotRange [%d - %d].", addr, server.ServerID, assignedStart, assignedEnd)
 	return nil
 }
