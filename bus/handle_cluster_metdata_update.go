@@ -19,21 +19,24 @@ func HandleClusterMetdataUpdate(conn net.Conn, parts []string, s *config.Server)
 				return
 			}
 
-			fmt.Println("server id: ", parts[3])
-			fmt.Println("server start: ", parts[4])
-			fmt.Println("server end: ", parts[5])
-
-			if _, exists := s.Nodes[parts[3]]; !exists {
-				conn.Write([]byte("ERR: server Id not found\n"))
+			serverID := parts[3]
+			start, err := utils.ParseUint16(parts[4])
+			if err != nil {
+				conn.Write([]byte("ERR: invalid START value\n"))
 				return
 			}
-			start, _ := utils.ParseUint16(parts[4])
-			end, _ := utils.ParseUint16(parts[5])
-			idx := s.FindRangeIndex(start, end)
+			end, err := utils.ParseUint16(parts[5])
+			if err != nil {
+				conn.Write([]byte("ERR: invalid END value\n"))
+				return
+			}
 
-			s.Metadata[idx].Nodes = append(s.Metadata[idx].Nodes, parts[3])
+			if err := s.AddReplicaToRange(serverID, start, end); err != nil {
+				conn.Write([]byte(fmt.Sprintf("ERR: %s\n", err.Error())))
+				return
+			}
+
 			conn.Write([]byte("CMU ACK\n"))
-
 		}
 	default:
 		{

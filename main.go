@@ -17,7 +17,6 @@ import (
 	"iris/utils"
 )
 
-var Peers []*config.Node
 
 func main() {
 	clusterAddr := flag.String("cluster_server", "", "Address of a server in the cluster to join (optional)")

@@ -30,11 +30,6 @@ func HandleIncomingClusterMetadata(reader *bufio.Reader, s *config.Server) error
 
 	log.Println("Starting to handle incoming cluster metadata...")
 
-	selfNode, selfNodeExists := s.Nodes[s.ServerID]
-	if !selfNodeExists {
-		log.Printf("CRITICAL: Server's own node details (ID: %s) not found in its own Nodes map before metadata sync.", s.ServerID)
-	}
-
 	for {
 		line, err := reader.ReadString('\n')
 		if err != nil {
@@ -61,12 +56,14 @@ func HandleIncomingClusterMetadata(reader *bufio.Reader, s *config.Server) error
 
 		fmt.Printf("Receiver Metadata: %s\n", line)
 
-		// Expected format: SLOT <start> <end> <MASTERID> <Node1ID@ADDR1>,<Node2ID@ADDR2>,
+		// Expected format:
+		// SLOT <start> <end> <MASTERID@ADDR> <Node1ID@ADDR1>,<Node2ID@ADDR2>,...
 		parts := strings.Fields(line)
 		if len(parts) < 5 {
 			log.Printf("Skipping malformed SLOT line (not enough parts): %q", line)
 			continue
 		}
+
 		start, err := strconv.ParseUint(parts[1], 10, 16)
 		if err != nil {
 			return fmt.Errorf("invalid slot start %q: %w", parts[1], err)
@@ -75,9 +72,22 @@ func HandleIncomingClusterMetadata(reader *bufio.Reader, s *config.Server) error
 		if err != nil {
 			return fmt.Errorf("invalid slot end %q: %w", parts[2], err)
 		}
-		MasterNode := strings.Split(parts[3], "@")
+
+		masterParts := strings.Split(parts[3], "@")
+		if len(masterParts) != 2 {
+			return fmt.Errorf("invalid master node format: %q", parts[3])
+		}
+		masterID, masterAddr := masterParts[0], masterParts[1]
+
+		// Ensure master node exists in node map
+		if _, ok := newNodeMap[masterID]; !ok {
+			newNodeMap[masterID] = &config.Node{
+				ServerID: masterID,
+				Addr:     masterAddr,
+			}
+		}
+
 		var slotNodes []string
-		newNodeMap[MasterNode[0]] = &config.Node{ServerID: MasterNode[0], Addr: MasterNode[1]}
 		nodeEntries := strings.Split(parts[4], ",")
 		for _, entry := range nodeEntries {
 			if entry == "" || entry == "NONE" {
@@ -89,32 +99,26 @@ func HandleIncomingClusterMetadata(reader *bufio.Reader, s *config.Server) error
 				continue
 			}
 			id, addr := nodeParts[0], nodeParts[1]
+
 			if _, ok := newNodeMap[id]; !ok {
-				newNodeMap[id] = &config.Node{ServerID: id, Addr: addr}
+				newNodeMap[id] = &config.Node{
+					ServerID: id,
+					Addr:     addr,
+				}
 			}
 			slotNodes = append(slotNodes, id)
 		}
+
 		newMetadata = append(newMetadata, &config.SlotRange{
 			Start:    uint16(start),
 			End:      uint16(end),
-			MasterID: MasterNode[0],
+			MasterID: masterID,
 			Nodes:    slotNodes,
 		})
 	}
 
-	s.Metadata = newMetadata
-	s.Nodes = newNodeMap
-
-	// Restore the server's own node details into the newly updated map.
-	if selfNodeExists {
-		s.Nodes[s.ServerID] = selfNode
-	}
-
-	s.Nnode = uint16(len(s.Nodes))
-	s.Cluster_Version++ // Increment version as metadata is updated
-
-	log.Printf("Successfully updated metadata. New Cluster Version: %d, Nodes: %d, Slot Ranges: %d",
-		s.Cluster_Version, s.Nnode, len(s.Metadata))
+	// state mutation + locking happens inside config.Server
+	s.ApplyClusterMetadata(newMetadata, newNodeMap)
 
 	return nil
 }

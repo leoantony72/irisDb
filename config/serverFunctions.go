@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"iris/utils"
 	"net"
+	"sort"
 	"strings"
 	"time"
 )
@@ -64,4 +65,197 @@ func (s *Server) FindRangeIndexByServerID(serverID string) []int {
 		}
 	}
 	return indices
+}
+
+// applyCommitChanges encapsulates the logic for updating metadata and node lists
+// after a successful COMMIT phase. This function is called by both the coordinating
+// node and participating nodes.
+func (s *Server) ApplyCommitChanges(preparedMsg *PrepareMessage) error {
+	// 1. Add the new node to the global nodes map
+	s.mu.Lock()
+	if _, ok := s.Nodes[preparedMsg.TargetNodeID]; !ok {
+		s.Nodes[preparedMsg.TargetNodeID] = &Node{ServerID: preparedMsg.TargetNodeID, Addr: preparedMsg.Addr}
+		s.Nnode++
+	}
+	s.mu.Unlock()
+
+	// 2. Find the modified SlotRange.
+	var modifiedRangeIdx = -1
+	s.mu.RLock()
+	for i, sr := range s.Metadata {
+		if sr.MasterID == preparedMsg.ModifiedNodeID &&
+			preparedMsg.Start >= sr.Start && preparedMsg.End == sr.End &&
+			preparedMsg.Start > sr.Start {
+			modifiedRangeIdx = i
+			break
+		}
+	}
+	s.mu.Unlock()
+
+	if modifiedRangeIdx == -1 {
+		return fmt.Errorf("ModifiedNode SlotRange not found for expected split pattern. PreparedMsg: %+v, Current Metadata: %+v", preparedMsg, s.Metadata)
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.Metadata[modifiedRangeIdx].End = preparedMsg.Start - 1
+	s.Metadata[modifiedRangeIdx].Nodes = preparedMsg.ModifiedNodeReplicaList
+
+	// Create the new slot range for the joining node.
+	newJoinNodeRange := &SlotRange{
+		Start:    preparedMsg.Start,
+		End:      preparedMsg.End,
+		MasterID: preparedMsg.TargetNodeID,
+		Nodes:    preparedMsg.TargetNodeReplicaList,
+	}
+
+	s.Metadata = append(s.Metadata, newJoinNodeRange)
+	sort.Slice(s.Metadata, func(i, j int) bool {
+		return s.Metadata[i].Start < s.Metadata[j].Start
+	})
+
+	s.Cluster_Version++
+
+	delete(s.Prepared, preparedMsg.MessageID)
+	return nil
+}
+
+func (s *Server) HasNode(id string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	_, ok := s.Nodes[id]
+	return ok
+}
+
+func (s *Server) GetMasterNodeForRangeIdx(modifiedRangeIdx int) (*Node, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if modifiedRangeIdx < 0 || modifiedRangeIdx >= len(s.Metadata) {
+		return nil, false
+	}
+
+	masterID := s.Metadata[modifiedRangeIdx].MasterID
+	node, ok := s.Nodes[masterID]
+	return node, ok
+}
+
+func (s *Server) DeletePrepared(mid string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	delete(s.Prepared, mid)
+}
+
+// GetSlotRangesByIndices returns []SlotRange of the given indices of the s.Metadata
+// More efficient than getting individual SlotRanges cause GetSlotRangesByIndices only
+// uses 1 locking.
+func (s *Server) GetSlotRangesByIndices(indices []int) []SlotRange {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	out := make([]SlotRange, 0, len(indices))
+	for _, idx := range indices {
+		if idx < 0 || idx >= len(s.Metadata) {
+			continue
+		}
+		r := s.Metadata[idx]
+		c := *r
+		if r.Nodes != nil {
+			c.Nodes = append([]string(nil), r.Nodes...)
+		}
+		out = append(out, c)
+	}
+	return out
+}
+
+// GetSlotRangeByIndex returns a safe snapshot copy of the slot range at idx.
+func (s *Server) GetSlotRangeByIndex(idx int) (*SlotRange, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if idx < 0 || idx >= len(s.Metadata) {
+		return nil, false
+	}
+	r := s.Metadata[idx]
+	copyRange := *r
+	if r.Nodes != nil {
+		copyRange.Nodes = append([]string(nil), r.Nodes...)
+	}
+
+	return &copyRange, true
+}
+
+func (s *Server) GetServerMetadata() []SlotRange {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	slots := make([]SlotRange, 0, len(s.Metadata))
+
+	for _, r := range s.Metadata {
+		if r == nil {
+			continue
+		}
+		copyRange := *r
+		if r.Nodes != nil {
+			copyRange.Nodes = append([]string(nil), r.Nodes...)
+		}
+
+		slots = append(slots, copyRange)
+	}
+
+	return slots
+}
+
+func (s *Server) GetConnectedNodeData(id string) (Node, bool) {
+	s.mu.RLock()
+	n, ok := s.Nodes[id]
+	s.mu.RUnlock()
+
+	if !ok || n == nil {
+		return Node{}, false
+	}
+	copy := *n
+	return copy, true
+}
+
+// GetCommitPeers returns all peers except self, as a snapshot.
+func (s *Server) GetCommitPeers() []Node {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	peers := make([]Node, 0, len(s.Nodes))
+	for _, n := range s.Nodes {
+		if n.ServerID == s.ServerID {
+			continue
+		}
+		peers = append(peers, Node{
+			ServerID: n.ServerID,
+			Addr:     n.Addr,
+		})
+	}
+	return peers
+}
+
+// Returns the basic info needed for the header.
+func (s *Server) GetBasicInfo() (serverID, host, addr, busPort string, version uint64, totalNodes, totalSlots uint16) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return s.ServerID, s.Host, s.Addr, s.BusPort, s.Cluster_Version, s.Nnode, s.N
+}
+
+// Snapshot of nodes(MAP) as value copies.
+func (s *Server) GetNodesSnapshot() []Node {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	nodes := make([]Node, 0, len(s.Nodes))
+	for _, n := range s.Nodes {
+		if n == nil {
+			continue
+		}
+		nodes = append(nodes, *n)
+	}
+	return nodes
 }

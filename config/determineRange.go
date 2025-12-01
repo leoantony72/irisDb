@@ -1,27 +1,29 @@
-package bus
+package config
 
 import (
-	"iris/config"
 	"log"
 	"math/rand"
 )
 
 // determineRange selects a random existing slot range to split.
 // It returns the index of the selected range in s.Metadata, and the start/end of the new sub-range.
-func DetermineRange(s *config.Server) (int, uint16, uint16, []string, []string) {
-	if s.Nnode == 0 || len(s.Metadata) == 0 {
+func (s *Server) DetermineRange() (int, uint16, uint16, []string, []string) {
+	if s.GetNodeCount() == 0 || s.GetSlotRangeCount() == 0 {
 		log.Fatal("No nodes or metadata found to determine range from. Cluster is empty?")
 	}
 
-	//determine replica for the coordinating server if the len(replica) < replicationFactor
+	// Determine replica for the coordinating server if len(replicas) < ReplicationFactor.
+	// (Assumes FindHandlingRanges is itself thread-safe.)
 	_, _, replicas := s.FindHandlingRanges()
 	if len(replicas) < s.ReplicationFactor {
-
+		// plug extra logic here later
 	}
 
-	// Iterate to find a range that can actually be split (has more than 1 slot)
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
 	var selectedIdx int
-	var selectedRange *config.SlotRange
+	var selectedRange *SlotRange
 	attempts := 0
 	maxAttempts := 100
 
@@ -50,27 +52,23 @@ func DetermineRange(s *config.Server) (int, uint16, uint16, []string, []string) 
 	newRangeEnd := end
 
 	log.Printf("Selected range for split: %d-%d (owned by %s). New node will take %d-%d. Old node keeps %d-%d.",
-		selectedRange.Start, selectedRange.End, selectedRange.MasterID, newRangeStart, newRangeEnd, start, mid)
+		selectedRange.Start, selectedRange.End, selectedRange.MasterID,
+		newRangeStart, newRangeEnd, start, mid)
 
-	// Logic for the determination of Replica for the splitted range
-	// 1) One of the replica will always be the modified server since it already have the
-	//    data in the server
-	// 2) The modified server, will already have a list of replica for the original range
-	//    Copy the already existing replica list to the new joined server.
-	// 3) If the range.Nodes < replication_factor, We need a algorithm to decide which
-	//    server the new splitted range will handle.
-
-	newReplicaServer := selectReplicas(s)
-
-	return selectedIdx, newRangeStart, newRangeEnd, newReplicaServer, s.Metadata[selectedIdx].Nodes
+	newReplicaServer := s.selectReplicasLocked()
+	existingReplicas := append([]string(nil), s.Metadata[selectedIdx].Nodes...)
+	return selectedIdx, newRangeStart, newRangeEnd, newReplicaServer, existingReplicas
 }
 
-func selectReplicas(s *config.Server) []string {
-	candidates := []string{}
+// selectReplicasLocked chooses replica IDs for a range.
+// It assumes the caller does NOT hold s.mu; this method locks internally.
+func (s *Server) selectReplicasLocked() []string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	candidates := make([]string, 0, len(s.Nodes))
 	for _, node := range s.Nodes {
-		// if node.ServerID != s.ServerID {
 		candidates = append(candidates, node.ServerID)
-		// }
 	}
 
 	if len(candidates) <= s.ReplicationFactor {
@@ -80,5 +78,6 @@ func selectReplicas(s *config.Server) []string {
 	rand.Shuffle(len(candidates), func(i, j int) {
 		candidates[i], candidates[j] = candidates[j], candidates[i]
 	})
+
 	return candidates[:s.ReplicationFactor]
 }

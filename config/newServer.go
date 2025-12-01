@@ -4,6 +4,7 @@ import (
 	"iris/utils"
 	"log"
 	"net"
+	"sync"
 
 	"github.com/google/uuid"
 )
@@ -58,6 +59,7 @@ func NewServer() *Server {
 		Nodes:             map[string]*Node{},
 		ReplicationFactor: 1,
 		Prepared:          make(map[string]*PrepareMessage),
+		mu:                sync.RWMutex{},
 	}
 
 	// node.Nodes = append(node.Nodes, &Node{ServerID: name, Addr: addr})

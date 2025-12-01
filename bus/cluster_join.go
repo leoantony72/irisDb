@@ -15,7 +15,7 @@ func HandleJoin(conn net.Conn, parts []string, s *config.Server, db *engine.Engi
 		return
 	}
 	serverID := parts[1]
-	if _, ok := s.Nodes[serverID]; ok {
+	if s.HasNode(serverID) {
 		log.Printf("🧀SERVER ID:%s REJOINED SUCESSFULLY", serverID)
 		err := sendClusterMetadata(conn, s)
 		if err != nil {
@@ -34,9 +34,13 @@ func HandleJoin(conn net.Conn, parts []string, s *config.Server, db *engine.Engi
 
 	newNode := config.Node{ServerID: newServerID, Addr: newNodeAddr}
 
-	modifiedRangeIdx, startRangeForNewNode, endRangeForNewNode, newReplicaList, modifiedServerReplicaList := DetermineRange(s)
+	modifiedRangeIdx, startRangeForNewNode, endRangeForNewNode, newReplicaList, modifiedServerReplicaList := s.DetermineRange()
 
-	modifiedNode := s.Nodes[s.Metadata[modifiedRangeIdx].MasterID]
+	modifiedNode, ok := s.GetMasterNodeForRangeIdx(modifiedRangeIdx)
+	if !ok {
+		log.Println("Master node not found for modified range")
+		return
+	}
 	log.Printf("Joining node %s (addr: %s). Selected slot range %d-%d from node %s (addr: %s) to split.",
 		newNode.ServerID, newNode.Addr, startRangeForNewNode, endRangeForNewNode, modifiedNode.ServerID, modifiedNode.Addr)
 
@@ -60,7 +64,7 @@ func HandleJoin(conn net.Conn, parts []string, s *config.Server, db *engine.Engi
 		return
 	}
 	if !commitSuccess {
-		delete(s.Prepared, mid)
+		s.DeletePrepared(mid)
 		conn.Write([]byte("ERR: JOIN COMMIT failed\n"))
 		log.Println("Commit failed for unknown reason (commitSuccess was false)")
 		return
@@ -68,7 +72,7 @@ func HandleJoin(conn net.Conn, parts []string, s *config.Server, db *engine.Engi
 	log.Printf("COMMIT successful for MessageID: %s", mid)
 
 	log.Printf("Cluster metadata updated. New version: %d, Nodes: %d, Slot Ranges: %d",
-		s.Cluster_Version, len(s.Nodes), len(s.Metadata))
+		s.GetClusterVersion(), s.GetNodeCount(), s.GetSlotRangeCount())
 
 	err = sendClusterMetadata(conn, s)
 	if err != nil {
@@ -97,8 +101,9 @@ func sendReJoinSuccess(s *config.Server, conn net.Conn, ServerID string, ranges 
 
 	fmt.Fprintf(&b, "JOIN_SUCCESS %d", len(ranges))
 
-	for _, r := range ranges {
-		fmt.Fprintf(&b, " %d %d", s.Metadata[r].Start, s.Metadata[r].End)
+	slotRanges := s.GetSlotRangesByIndices(ranges)
+	for _, r := range slotRanges {
+		fmt.Fprintf(&b, " %d %d", r.Start, r.End)
 	}
 
 	if _, err := conn.Write([]byte(b.String() + "\n")); err != nil {
@@ -115,13 +120,14 @@ func sendClusterMetadata(conn net.Conn, s *config.Server) error {
 	if err != nil {
 		return fmt.Errorf("failed to write cluster metadata start: %w", err)
 	}
-
-	for _, slot := range s.Metadata {
+	meta := s.GetServerMetadata()
+	for _, slot := range meta {
 		var nodeInfos []string
 
 		if len(slot.Nodes) > 0 {
 			for _, node := range slot.Nodes {
-				nodeInfo := fmt.Sprintf("%s@%s", s.Nodes[node].ServerID, s.Nodes[node].Addr)
+				n, _ := s.GetConnectedNodeData(node)
+				nodeInfo := fmt.Sprintf("%s@%s", n.ServerID, n.Addr)
 				nodeInfos = append(nodeInfos, nodeInfo)
 			}
 		} else {
@@ -129,7 +135,11 @@ func sendClusterMetadata(conn net.Conn, s *config.Server) error {
 		}
 
 		// Build master node info
-		masterNode := slot.MasterID + "@" + s.Nodes[slot.MasterID].Addr
+		Mn, ok := s.GetConnectedNodeData(slot.MasterID)
+		if !ok{
+			return fmt.Errorf("failed to write slot info: %s", ok)
+		}
+		masterNode := slot.MasterID + "@" + Mn.Addr
 
 		// Format: SLOT <Start> <End> <MasterNodeID> <Node1@Addr1>,<Node2@Addr2>,...
 		msg := fmt.Sprintf("SLOT %d %d %s %s\n", slot.Start, slot.End, masterNode, strings.Join(nodeInfos, ","))

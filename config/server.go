@@ -27,7 +27,7 @@ type PrepareMessage struct {
 	ModifiedNodeID          string // ID of the node from which the slots for the new nodes are taken
 	ModifiedNodeReplicaList []string
 	TargetNodeReplicaList   []string
-	mu                      *sync.RWMutex
+	// mu                      *sync.RWMutex
 }
 
 type Server struct {
@@ -43,5 +43,23 @@ type Server struct {
 	Cluster_Version   uint64
 	BusPort           string
 	Prepared          map[string]*PrepareMessage
-	mu                *sync.RWMutex
+	mu                sync.RWMutex
+}
+
+func (s *Server) GetClusterVersion() uint64 {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.Cluster_Version
+}
+
+func (s *Server) GetNodeCount() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return len(s.Nodes)
+}
+
+func (s *Server) GetSlotRangeCount() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return len(s.Metadata)
 }
