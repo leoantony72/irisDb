@@ -59,8 +59,13 @@ func HandleClusterCommand(cmd string, conn net.Conn, s *config.Server, db *engin
 		}
 	case "LEAVE":
 		{
-			HandleLeave(conn, parts, s,db)
+			HandleLeave(conn, parts, s, db)
 			db.SaveServerMetadata(s)
+		}
+
+	case "SNAPSHOT":
+		{
+			HandleClusterSnapshot(conn, s)
 		}
 
 	default:

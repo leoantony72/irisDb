@@ -48,7 +48,7 @@ func NewServer() *Server {
 		log.Fatalf("No available bus ports found from list: %v", possibleBusPorts)
 	}
 
-	addr := ip + ":" + selectedPort
+	addr := "localhost" + ":" + selectedPort
 	server := Server{
 		ServerID:          name,
 		Addr:              addr,

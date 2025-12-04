@@ -207,6 +207,7 @@ func (s *Server) GetServerMetadata() []SlotRange {
 	return slots
 }
 
+// GetConnectedNodeData returns the copy of Node given the node ID
 func (s *Server) GetConnectedNodeData(id string) (Node, bool) {
 	s.mu.RLock()
 	n, ok := s.Nodes[id]
