@@ -28,6 +28,13 @@ func HandleJoin(conn net.Conn, parts []string, s *config.Server, db *engine.Engi
 		return
 	}
 	ip, _, _ := net.SplitHostPort(conn.RemoteAddr().String())
+
+	// Normalize loopback addresses to 127.0.0.1 for IPv4-only consistency
+	// This fixes Windows issues where localhost resolves to IPv6 first, causing dual-stack problems
+	if ip == "::1" || ip == "127.0.0.1" || ip == "localhost" {
+		ip = "127.0.0.1"
+	}
+
 	newServerID := parts[1]
 	newServerPort := parts[2]
 	newNodeAddr := net.JoinHostPort(ip, newServerPort)
@@ -136,7 +143,7 @@ func sendClusterMetadata(conn net.Conn, s *config.Server) error {
 
 		// Build master node info
 		Mn, ok := s.GetConnectedNodeData(slot.MasterID)
-		if !ok{
+		if !ok {
 			return fmt.Errorf("failed to write slot info: %s", ok)
 		}
 		masterNode := slot.MasterID + "@" + Mn.Addr

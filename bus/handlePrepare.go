@@ -140,7 +140,7 @@ func Prepare(
 		}
 
 		log.Printf("Sending PREPARE %s to %s via bus port %s", messageID, node.ServerID, busport)
-		conn, err := net.DialTimeout("tcp", busport, 2*time.Second)
+		conn, err := net.Dial("tcp", busport)
 		if err != nil {
 			return "", false, fmt.Errorf("failed to connect to peer(ID:%s) %s: %w", node.ServerID, busport, err)
 		}

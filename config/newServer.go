@@ -21,7 +21,7 @@ func NewServer() *Server {
 	var selectedPort string
 
 	for _, port := range possiblePorts {
-		lis, err := net.Listen("tcp", ip+":"+port)
+		lis, err := net.Listen("tcp", ":"+port)
 		if err == nil {
 			lis.Close()
 			selectedPort = port
@@ -32,23 +32,27 @@ func NewServer() *Server {
 		log.Fatalf("No available main ports found from list: %v", possiblePorts)
 	}
 
-	// List of preferred ports to try for bus communication
+	// Calculate corresponding bus port based on selected main port
+	// Bus ports are offset by 10000: 8008→18008, 8009→18009, etc.
 	possibleBusPorts := []string{"18008", "18009", "18010", "18011"}
-	var selectedBusPort string
-
-	for _, port := range possibleBusPorts {
-		lis, err := net.Listen("tcp", ip+":"+port)
-		if err == nil {
-			lis.Close()
-			selectedBusPort = port
+	mainPortNum := 0
+	for i, port := range possiblePorts {
+		if port == selectedPort {
+			mainPortNum = i
 			break
 		}
 	}
-	if selectedBusPort == "" {
-		log.Fatalf("No available bus ports found from list: %v", possibleBusPorts)
+	selectedBusPort := possibleBusPorts[mainPortNum]
+	
+	// Verify bus port is available
+	busLis, err := net.Listen("tcp", ":"+selectedBusPort)
+	if err != nil {
+		log.Fatalf("Bus port %s not available: %v", selectedBusPort, err)
 	}
+	busLis.Close()
 
-	addr := "localhost" + ":" + selectedPort
+	// Use 127.0.0.1 instead of localhost to force IPv4 and avoid Windows dual-stack resolution issues
+	addr := "127.0.0.1" + ":" + selectedPort
 	server := Server{
 		ServerID:          name,
 		Addr:              addr,

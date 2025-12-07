@@ -32,18 +32,25 @@ func NewEngine() (*Engine, error) {
 			return &Engine{Db: db}, nil
 		}
 
-		// Check if it's a locking error
-		if strings.Contains(err.Error(), "lock") || strings.Contains(err.Error(), "resource temporarily unavailable") {
-			log.Printf("⚠️DB at %s is locked, trying next...\n", dbPath)
+		errMsg := strings.ToLower(err.Error())
+
+		// ✅ WINDOWS + LINUX + MAC FILE LOCK DETECTION
+		if strings.Contains(errMsg, "lock") ||
+			strings.Contains(errMsg, "resource temporarily unavailable") ||
+			strings.Contains(errMsg, "being used by another process") ||
+			strings.Contains(errMsg, "used by another process") ||
+			strings.Contains(errMsg, "cannot access the file") {
+
+			log.Printf("⚠️ DB at %s is locked, trying next...\n", dbPath)
 			continue
 		}
 
-		// Unexpected error, exit early
-		log.Printf("❌Failed to open Pebble DB at %s: %v", dbPath, err)
+		// ❌ Any other error is real → exit immediately
+		log.Printf("❌ Failed to open Pebble DB at %s: %v", dbPath, err)
 		return nil, err
 	}
 
-	return nil, fmt.Errorf("❌All fallback Pebble DB paths are locked or failed")
+	return nil, fmt.Errorf("❌ All fallback Pebble DB paths are locked or failed")
 }
 
 func (e *Engine) Close() {
@@ -53,7 +60,7 @@ func (e *Engine) Close() {
 }
 
 // Get retrieves the value for a given key
-//returns (string, error) returns an error if the key does not exist.
+// returns (string, error) returns an error if the key does not exist.
 func (e *Engine) Get(key string) (string, error) {
 	if e.Db == nil {
 		return "", errors.New("database not initialized")

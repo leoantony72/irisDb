@@ -17,7 +17,6 @@ import (
 	"iris/utils"
 )
 
-
 func main() {
 	clusterAddr := flag.String("cluster_server", "", "Address of a server in the cluster to join (optional)")
 	flag.Parse()
@@ -31,8 +30,24 @@ func main() {
 	loaded_data, err := CheckAndLoadMetadata(IrisDb)
 	if err == nil {
 		server = loaded_data
+		log.Printf("[✅] Loaded server config from database. ServerID: %s", server.ServerID)
 	} else {
 		server = config.NewServer()
+		log.Printf("[✅] Created new server config. ServerID: %s", server.ServerID)
+	}
+
+	// IMPORTANT: Always refresh the Host field with current machine IP
+	// This ensures that if the server is moved to a different network or restarted
+	// with a different network configuration, the Host field is up to date.
+	// The Host field is used for informational purposes and cluster metadata.
+	ip, err := utils.GetLocalIp()
+	if err != nil {
+		log.Printf("[WARN] Failed to get local IP: %v (using stored value)", err)
+	} else {
+		if server.Host != ip {
+			log.Printf("[INFO] Updating Host IP from %s to %s", server.Host, ip)
+		}
+		server.Host = ip
 	}
 
 	lis, err := net.Listen("tcp", ":"+server.Port)
@@ -43,22 +58,33 @@ func main() {
 	defer lis.Close()
 	log.Printf("🍔IrisDb started at port:%s \n", server.Port)
 	log.Printf("📦Server ID:%s\n", server.ServerID)
+	log.Printf("🌐Host IP:%s | Addr:%s | Bus Port:%s\n", server.Host, server.Addr, server.BusPort)
+	log.Printf("📊Cluster Info - Version: %d, Nodes: %d, Slot Ranges: %d\n", server.Cluster_Version, server.Nnode, server.GetSlotRangeCount())
 
 	go bus.NewBusRoute(server, IrisDb)
 
 	if *clusterAddr != "" {
-		err := joinCluster(*clusterAddr, server)
+		err := joinCluster(*clusterAddr, server, IrisDb)
 		if err != nil {
 			log.Printf("Warning: failed to join cluster at %s: %v", *clusterAddr, err)
+		} else {
+			log.Printf("[✅] Cluster join successful. Server configuration saved to database.")
 		}
 	}
 
+	// Start replica validator AFTER cluster metadata is loaded
 	go func() {
+		// Wait a moment to ensure metadata is stable
+		time.Sleep(2 * time.Second)
+
 		for {
 			time.Sleep(30 * time.Second)
-			log.Printf("[✅INFO]: RUNNING REPLICA VALIDATOR\n")
+			log.Printf("[✅INFO]: RUNNING REPLICA VALIDATOR for Server %s\n", server.ServerID)
 			if !server.ReplicationValidator() {
+				log.Printf("[⚠️ WARNING]: Replication factor not met for server %s. Starting repair...\n", server.ServerID)
 				server.RepairReplication()
+			} else {
+				log.Printf("[✅ SUCCESS]: Replication factor met for server %s\n", server.ServerID)
 			}
 		}
 	}()
@@ -91,7 +117,7 @@ func handleConnection(conn net.Conn, db *engine.Engine, server *config.Server) {
 }
 
 // joinCluster connects to an existing node in the cluster and requests to join.
-func joinCluster(addr string, server *config.Server) error {
+func joinCluster(addr string, server *config.Server, db *engine.Engine) error {
 	log.Printf("Attempting to join cluster via %s...", addr)
 	conn, err := net.Dial("tcp", addr)
 	if err != nil {
@@ -179,6 +205,11 @@ func joinCluster(addr string, server *config.Server) error {
 
 		log.Printf("✅ Successfully joined cluster via %s. This server (%s) is responsible for SlotRange %s", addr, server.ServerID, b.String())
 
+	}
+
+	// ✅ Save configuration to database after successful cluster join
+	if err := db.SaveServerMetadata(server); err != nil {
+		log.Printf("[WARN] Failed to save server config to database after cluster join: %v", err)
 	}
 
 	return nil
