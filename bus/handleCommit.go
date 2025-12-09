@@ -46,12 +46,12 @@ func commit(mid string, s *config.Server, db *engine.Engine) (bool, error) {
 		}
 
 		log.Printf("Sending COMMIT %s to %s via bus port %s", mid, peer.ServerID, busport)
-		conn, err := net.DialTimeout("tcp", busport, 2*time.Second)
+		conn, err := net.DialTimeout("tcp", busport, 10*time.Second)
 		if err != nil {
 			return false, fmt.Errorf("failed to connect to peer(ID:%s) %s: %w", peer.ServerID, busport, err)
 		}
 
-		_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
+		_ = conn.SetDeadline(time.Now().Add(15 * time.Second))
 
 		if _, err = conn.Write([]byte(msg)); err != nil {
 			conn.Close()

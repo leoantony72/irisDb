@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"iris/utils"
+	"log"
 	"net"
 	"sort"
 	"strings"
@@ -15,7 +16,7 @@ func (s *Server) SendReplicaCMD(cmd string, replicaID string) bool {
 	r := s.Nodes[replicaID]
 	s.mu.RUnlock()
 	busaddr, _ := utils.BumpPort(r.Addr, 10000)
-	conn, err := net.DialTimeout("tcp", busaddr, 2*time.Second)
+	conn, err := net.DialTimeout("tcp", busaddr, 10*time.Second)
 	if err != nil {
 		fmt.Printf("ERR: SendReplicaCMD: %s\n", err.Error())
 		return false
@@ -44,6 +45,12 @@ func (s *Server) SendReplicaCMD(cmd string, replicaID string) bool {
 func (s *Server) FindRangeIndex(start, end uint16) int {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	return s.findRangeIndexLocked(start, end)
+}
+
+// findRangeIndexLocked is the internal non-locking version of FindRangeIndex.
+// Caller must already hold at least a read lock (s.mu.RLock()) on the server.
+func (s *Server) findRangeIndexLocked(start, end uint16) int {
 	for i, r := range s.Metadata {
 		if r.Start == start && r.End == end {
 			return i
@@ -240,7 +247,9 @@ func (s *Server) GetCommitPeers() []Node {
 
 // Returns the basic info needed for the header.
 func (s *Server) GetBasicInfo() (serverID, host, addr, busPort string, version uint64, totalNodes, totalSlots uint16) {
+	log.Printf("GetBasicInfo: About to acquire read lock")
 	s.mu.RLock()
+	log.Printf("GetBasicInfo: Read lock acquired")
 	defer s.mu.RUnlock()
 
 	return s.ServerID, s.Host, s.Addr, s.BusPort, s.Cluster_Version, s.Nnode, s.N

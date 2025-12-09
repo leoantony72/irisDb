@@ -32,36 +32,38 @@ func HandleLeave(conn net.Conn, parts []string, s *config.Server, db *engine.Eng
 	peers := s.GetCommitPeers()
 	for _, p := range peers {
 		busAddr, _ := utils.BumpPort(p.Addr, 10000)
-		conn, err := net.DialTimeout("tcp", busAddr, 2*time.Second)
+		peerConn, err := net.DialTimeout("tcp", busAddr, 10*time.Second)
 		if err != nil {
 			log.Println("ERR: %s", err)
 			continue
 		}
 
 		// send a small command to indicate snapshot mode
-		conn.Write([]byte("SNAPSHOT \n"))
+		peerConn.Write([]byte("SNAPSHOT \n"))
+		log.Printf("Sent SNAPSHOT command to peer %s", p.ServerID)
 
-		if err := s.SendClusterSnapshot(conn); err != nil {
-			conn.Close()
+		if err := s.SendClusterSnapshot(peerConn); err != nil {
+			peerConn.Close()
 			continue
 		}
 
 		expectedResponse := "SNAPSHOT_OK"
 
-		reader := bufio.NewReader(conn)
+		reader := bufio.NewReader(peerConn)
 		resp, _ := reader.ReadString('\n')
 		resp = strings.TrimSpace(resp)
-		conn.Close()
 
 		if resp != expectedResponse {
 			fmt.Printf("res: %s, %s\n", resp, expectedResponse)
-			errMsg := fmt.Sprintf("ERR write failed: %s\n", "Err Response From Master Server")
-			conn.Write([]byte(errMsg))
-			return
-		} else {
-			msg := fmt.Sprintf("LEAVE %s\n", serverId)
-			conn.Write([]byte(msg))
+			log.Printf("ERR: Err Response From peer Server for SNAPSHOT_OK")
+			peerConn.Close()
+			continue
 		}
+		
+		log.Printf("Successfully updated peer %s with new cluster snapshot", p.ServerID)
+		peerConn.Close()
 	}
-
+	
+	// Send success response to the client
+	conn.Write([]byte("SHUTDOWN SUCCESS\n"))
 }

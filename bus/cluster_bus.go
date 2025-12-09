@@ -8,6 +8,7 @@ import (
 	"log"
 	"net"
 	"strings"
+	"time"
 )
 
 func NewBusRoute(server *config.Server, db *engine.Engine) {
@@ -35,6 +36,9 @@ func handleConnection(conn net.Conn, server *config.Server, db *engine.Engine) {
 	defer conn.Close()
 	reader := bufio.NewReader(conn)
 	for {
+		// Set read deadline to detect stalled connections
+		conn.SetReadDeadline(time.Now().Add(1 * time.Minute))
+		
 		line, err := reader.ReadString('\n')
 		if err != nil {
 			if err != io.EOF {
@@ -42,6 +46,20 @@ func handleConnection(conn net.Conn, server *config.Server, db *engine.Engine) {
 			}
 			break
 		}
-		HandleClusterCommand(strings.TrimSpace(line), conn, server, db)
+		
+		trimmedCmd := strings.TrimSpace(line)
+		
+		// Special handling for SNAPSHOT: it has binary data following the text command
+		// We need to handle it before the buffered reader interferes
+		if strings.ToUpper(trimmedCmd) == "SNAPSHOT" {
+			// For SNAPSHOT, we need to use the raw connection without bufio interference
+			// Close the current connection and let the sender establish a new one for binary data
+			// Actually, SNAPSHOT data comes on the same connection right after this line
+			// We pass the reader to HandleClusterSnapshot so it can continue reading from the buffered stream
+			HandleClusterSnapshot(reader, conn, server)
+			continue
+		}
+		
+		HandleClusterCommand(trimmedCmd, conn, server, db)
 	}
 }

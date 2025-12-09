@@ -70,7 +70,7 @@ func (e *Engine) HandleCommand(cmd string, conn net.Conn, server *config.Server)
 				fmt.Println("KEY FORWARD")
 				busAddr, _ := utils.BumpPort(server.Nodes[g].Addr, 10000)
 				fmt.Printf("SET FORWARD: ADDR: %s\n", busAddr)
-				Sconn, err := net.DialTimeout("tcp", busAddr, 2*time.Second)
+				Sconn, err := net.DialTimeout("tcp", busAddr, 10*time.Second)
 				if err != nil {
 					errMsg := fmt.Sprintf("ERR write failed: %s\n", "Coudn't connect to Master Server")
 					conn.Write([]byte(errMsg))
@@ -147,19 +147,9 @@ func (e *Engine) HandleCommand(cmd string, conn net.Conn, server *config.Server)
 			if len(parts) != 1 {
 				errMsg := fmt.Sprintf("ERR Incorrect Format: %s\n", "SHUTDOWN")
 				conn.Write([]byte(errMsg))
+				return
 			}
 			log.Println("SHUTDOWN requested❎")
-
-			//send req to master server range[0-?]
-			//master process the leave req by first promoting the first replica to master
-			// metadataIdx := server.FindRangeIndexByServerID(server.ServerID)
-			// for _, idx := range metadataIdx {
-			// 	metadata, ok := server.GetSlotRangeByIndex(idx)
-			// 	if !ok {
-			// 		conn.Write([]byte("INTERNAL ERROR\n"))
-			// 		return
-			// 	}
-			// forward the req to master server
 			masterRange := server.GetSlotRangesByIndices([]int{0})
 
 			masterNodeID := masterRange[0].MasterID
@@ -172,7 +162,7 @@ func (e *Engine) HandleCommand(cmd string, conn net.Conn, server *config.Server)
 
 			busAddr, _ := utils.BumpPort(masterNode.Addr, 10000)
 			fmt.Printf("MASTER ADDR: %s\n", busAddr)
-			Sconn, err := net.DialTimeout("tcp", busAddr, 2*time.Second)
+			Sconn, err := net.DialTimeout("tcp", busAddr, 10*time.Second)
 			if err != nil {
 				errMsg := fmt.Sprintf("ERR SHUTDOWN failed: %s\n", "Coudn't connect to Master Server")
 				conn.Write([]byte(errMsg))
@@ -184,11 +174,12 @@ func (e *Engine) HandleCommand(cmd string, conn net.Conn, server *config.Server)
 			if err != nil {
 				errMsg := fmt.Sprintf("ERR write failed: %s\n", "Coudn't forward to Master Server")
 				conn.Write([]byte(errMsg))
+				Sconn.Close()
 				return
 			}
 
 			// expected Response
-			expectedResponse := fmt.Sprintf("LEAVE %s", server.ServerID)
+			expectedResponse := "SHUTDOWN SUCCESS"
 			reader := bufio.NewReader(Sconn)
 			resp, _ := reader.ReadString('\n')
 			resp = strings.TrimSpace(resp)

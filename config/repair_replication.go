@@ -82,7 +82,7 @@ func (s *Server) RepairReplication() {
 		}
 
 		addr, _ := utils.BumpPort(node.Addr, 10000)
-		conn, err := net.DialTimeout("tcp", addr, 2*time.Second)
+		conn, err := net.DialTimeout("tcp", addr, 10*time.Second)
 		if err != nil {
 			fmt.Printf("ERR: RepairReplication: %s\n", err.Error())
 			continue

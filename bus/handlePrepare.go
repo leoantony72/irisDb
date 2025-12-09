@@ -144,7 +144,7 @@ func Prepare(
 		if err != nil {
 			return "", false, fmt.Errorf("failed to connect to peer(ID:%s) %s: %w", node.ServerID, busport, err)
 		}
-		conn.SetDeadline(time.Now().Add(5 * time.Second))
+		conn.SetDeadline(time.Now().Add(15 * time.Second))
 
 		if _, err = conn.Write([]byte(message)); err != nil {
 			conn.Close()
