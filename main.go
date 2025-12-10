@@ -82,7 +82,7 @@ func main() {
 			log.Printf("[✅INFO]: RUNNING REPLICA VALIDATOR for Server %s\n", server.ServerID)
 			if !server.ReplicationValidator() {
 				log.Printf("[⚠️ WARNING]: Replication factor not met for server %s. Starting repair...\n", server.ServerID)
-				server.RepairReplication()
+				server.ForwardRepairRequestToMaster()
 			} else {
 				log.Printf("[✅ SUCCESS]: Replication factor met for server %s\n", server.ServerID)
 			}

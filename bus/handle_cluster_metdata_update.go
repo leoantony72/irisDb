@@ -38,6 +38,29 @@ func HandleClusterMetdataUpdate(conn net.Conn, parts []string, s *config.Server)
 
 			conn.Write([]byte("CMU ACK\n"))
 		}
+	case "REPAIR":
+		{
+			//CMU REPAIR REQ SERVERID START END
+			if len(parts) != 6 {
+				conn.Write([]byte("ERR: invalid format, CMU REPAIR REQ SERVERID START END\n"))
+				return
+			}
+
+			serverID := parts[3]
+			// start, err := utils.ParseUint16(parts[4])
+
+			// if err != nil {
+			// 	conn.Write([]byte("ERR: invalid START value\n"))
+			// 	return
+			// }
+			// end, err := utils.ParseUint16(parts[5])
+			// if err != nil {
+			// 	conn.Write([]byte("ERR: invalid END value\n"))
+			// 	return
+			// }
+
+			s.RepairRangeOnMaster(serverID)
+		}
 	default:
 		{
 			conn.Write([]byte("ERR: invalid message\n"))

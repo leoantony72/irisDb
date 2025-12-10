@@ -12,8 +12,8 @@ import (
 
 // RepairReplication checks if each handling range has enough replica
 // nodes. If not, it assigns replicas until numberOfReplica == ReplicationFactor
-func (s *Server) RepairReplication() {
-	ranges := s.FindRangeIndexByServerID(s.ServerID)
+func (s *Server) RepairReplication(serverID string) {
+	ranges := s.FindRangeIndexByServerID(serverID)
 
 	for _, idx := range ranges {
 		// Get range info inside lock to be safe
@@ -163,4 +163,70 @@ func (s *Server) RepairReplication() {
 		}
 		s.mu.Unlock()
 	}
+}
+
+func (s *Server) RepairRangeOnMaster(serverID string) error {
+	log.Printf("RepairRangeOnMaster: Requesting repair for server %s", serverID)
+	s.RepairReplication(serverID)
+	log.Printf("RepairRangeOnMaster: Completed repair request for server %s,", serverID)
+	return nil
+}
+
+func (s *Server) ForwardRepairRequestToMaster() {
+	// Forward a repair request for this server to the cluster master.
+	// Master is determined from the first slot range's MasterID (slot 0 owner).
+	s.mu.RLock()
+	if len(s.Metadata) == 0 {
+		s.mu.RUnlock()
+		log.Printf("ForwardRepairRequestToMaster: no metadata available on server %s", s.ServerID)
+		return
+	}
+	masterID := s.Metadata[0].MasterID
+	s.mu.RUnlock()
+
+	// If this server is the master, handle locally
+	if masterID == s.ServerID {
+		log.Printf("ForwardRepairRequestToMaster: server %s is master, performing repair locally", s.ServerID)
+		if err := s.RepairRangeOnMaster(s.ServerID); err != nil {
+			log.Printf("ForwardRepairRequestToMaster: local repair failed: %v", err)
+		}
+		return
+	}
+
+	// Get master node info
+	masterNode, ok := s.GetConnectedNodeData(masterID)
+	if !ok {
+		log.Printf("ForwardRepairRequestToMaster: master node %s not found in nodes map", masterID)
+		return
+	}
+
+	busAddr, err := utils.BumpPort(masterNode.Addr, 10000)
+	if err != nil {
+		log.Printf("ForwardRepairRequestToMaster: failed to compute bus address for master %s: %v", masterID, err)
+		return
+	}
+
+	conn, err := net.DialTimeout("tcp", busAddr, 10*time.Second)
+	if err != nil {
+		log.Printf("ForwardRepairRequestToMaster: failed to connect to master %s at %s: %v", masterID, busAddr, err)
+		return
+	}
+	defer conn.Close()
+
+	// Send repair request: CMU REPAIR REQ <ServerID>
+	msg := fmt.Sprintf("CMU REPAIR REQ %s\n", s.ServerID)
+	if _, err := conn.Write([]byte(msg)); err != nil {
+		log.Printf("ForwardRepairRequestToMaster: failed to send repair request to master %s: %v", masterID, err)
+		return
+	}
+
+	// Read response (optional) and log it
+	resp := make([]byte, 1024)
+	n, err := conn.Read(resp)
+	if err != nil {
+		log.Printf("ForwardRepairRequestToMaster: error reading response from master %s: %v", masterID, err)
+		return
+	}
+	reply := strings.TrimSpace(string(resp[:n]))
+	log.Printf("ForwardRepairRequestToMaster: master %s replied: %s", masterID, reply)
 }
