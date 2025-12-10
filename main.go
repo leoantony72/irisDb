@@ -165,9 +165,9 @@ func joinCluster(addr string, server *config.Server, db *engine.Engine) error {
 	responseLine = strings.TrimSpace(responseLine)
 	parts := strings.Fields(responseLine)
 
-	//Expected:JOIN_SUCCESS <start_slot> <end_slot>
+	//Expected:JOIN_SUCCESS <start_slot> <end_slot> cluster_version
 	//or
-	//Expected: REJOIN_SUCCESS count <start_slot> <end_slot> ...
+	//Expected: REJOIN_SUCCESS count <start_slot> <end_slot> ... cluster_version
 	if parts[0] == "JOIN_SUCCESS" || parts[0] == "REJOIN_SUCCESS" {
 		// ✅ Valid success
 	} else {
@@ -186,6 +186,12 @@ func joinCluster(addr string, server *config.Server, db *engine.Engine) error {
 			return fmt.Errorf("invalid end slot in JOIN_SUCCESS: %w", err)
 		}
 
+		clusterVersion, err := utils.ParseUint16(parts[3])
+		if err != nil {
+			return fmt.Errorf("invalid cluster version in JOIN_SUCCESS: %w", err)
+		}
+		server.UpdateClusterVersion(uint64(clusterVersion))
+
 		log.Printf("✅ Successfully joined cluster via %s. This server (%s) is responsible for SlotRange [%d - %d].", addr, server.ServerID, assignedStart, assignedEnd)
 	} else {
 
@@ -202,6 +208,11 @@ func joinCluster(addr string, server *config.Server, db *engine.Engine) error {
 
 			fmt.Fprintf(&b, " [%d-%d]", start, end)
 		}
+		clusterVersion, err := utils.ParseUint16(parts[2+2*count])
+		if err != nil {
+			return fmt.Errorf("invalid cluster version in REJOIN_SUCCESS: %w", err)
+		}
+		server.UpdateClusterVersion(uint64(clusterVersion))
 
 		log.Printf("✅ Successfully joined cluster via %s. This server (%s) is responsible for SlotRange %s", addr, server.ServerID, b.String())
 

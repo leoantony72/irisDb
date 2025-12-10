@@ -24,7 +24,7 @@ func HandleJoin(conn net.Conn, parts []string, s *config.Server, db *engine.Engi
 		}
 
 		rangeIndices := s.FindRangeIndexByServerID(serverID)
-		sendReJoinSuccess(s, conn, serverID, rangeIndices)
+		sendReJoinSuccess(s, conn, serverID, rangeIndices, int(s.GetClusterVersion()))
 		return
 	}
 	ip, _, _ := net.SplitHostPort(conn.RemoteAddr().String())
@@ -86,14 +86,14 @@ func HandleJoin(conn net.Conn, parts []string, s *config.Server, db *engine.Engi
 		log.Println("Error sending cluster metadata:", err)
 	}
 
-	err = sendJoinSuccess(conn, newServerID, int(startRangeForNewNode), int(endRangeForNewNode))
+	err = sendJoinSuccess(conn, newServerID, int(startRangeForNewNode), int(endRangeForNewNode), int(s.GetClusterVersion()))
 	if err != nil {
 		log.Println("Error:", err)
 	}
 }
 
-func sendJoinSuccess(conn net.Conn, newServerID string, startRange, endRange int) error {
-	msg := fmt.Sprintf("JOIN_SUCCESS %d %d", startRange, endRange)
+func sendJoinSuccess(conn net.Conn, newServerID string, startRange, endRange int, cluster_version int) error {
+	msg := fmt.Sprintf("JOIN_SUCCESS %d %d %d", startRange, endRange, cluster_version)
 	if _, err := conn.Write([]byte(msg + "\n")); err != nil {
 		return fmt.Errorf("failed to send JOIN_SUCCESS to %s: %w", newServerID, err)
 	}
@@ -102,7 +102,7 @@ func sendJoinSuccess(conn net.Conn, newServerID string, startRange, endRange int
 	return nil
 }
 
-func sendReJoinSuccess(s *config.Server, conn net.Conn, ServerID string, ranges []int) error {
+func sendReJoinSuccess(s *config.Server, conn net.Conn, ServerID string, ranges []int, cluster_version int) error {
 
 	var b strings.Builder
 
@@ -112,6 +112,7 @@ func sendReJoinSuccess(s *config.Server, conn net.Conn, ServerID string, ranges 
 	for _, r := range slotRanges {
 		fmt.Fprintf(&b, " %d %d", r.Start, r.End)
 	}
+	fmt.Fprintf(&b, " %d", cluster_version)
 
 	if _, err := conn.Write([]byte(b.String() + "\n")); err != nil {
 		return fmt.Errorf("failed to send REJOIN")

@@ -34,7 +34,7 @@ func HandleLeave(conn net.Conn, parts []string, s *config.Server, db *engine.Eng
 		busAddr, _ := utils.BumpPort(p.Addr, 10000)
 		peerConn, err := net.DialTimeout("tcp", busAddr, 10*time.Second)
 		if err != nil {
-			log.Println("ERR: %s", err)
+			log.Printf("ERR: %s\n", err)
 			continue
 		}
 
