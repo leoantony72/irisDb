@@ -5,21 +5,17 @@ func (s *Server) ReplicationValidator() bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	// Find the range this server is master for
-	for _, nodeRange := range s.Metadata {
-		if nodeRange.MasterID == s.ServerID {
-			replicaCount := len(nodeRange.Nodes)
-			required := s.ReplicationFactor
-
-			if replicaCount < required {
-				return false
-			}
-			return true
+	// Find the ranges this server is master for
+	ranges := s.FindRangeIndexByServerID(s.ServerID)
+	for _, idx := range ranges {
+		r := s.Metadata[idx]
+		if len(r.Nodes) < s.ReplicationFactor {
+			return false
 		}
 	}
 
 	// No range found for this server
-	return false
+	return true
 }
 
 //should use 'return len(replica) >= s.ReplicationFactor' instead of 'if len(replica) < s.ReplicationFactor { return false }; return true'

@@ -6,111 +6,161 @@ import (
 	"log"
 	"math/rand"
 	"net"
-	"strconv"
 	"strings"
 	"time"
 )
 
-// RepairReplication checks if the handling range has enough replica
-// nodes, If yes continue else assigns replica until numberOfReplica == Replication Factor
+// RepairReplication checks if each handling range has enough replica
+// nodes. If not, it assigns replicas until numberOfReplica == ReplicationFactor
 func (s *Server) RepairReplication() {
-	start, end, replicaNodes := s.FindHandlingRanges() //existing replicas
+	ranges := s.FindRangeIndexByServerID(s.ServerID)
 
-	currentCount := len(replicaNodes)
-	required := s.ReplicationFactor
-
-	if currentCount >= required {
-		return
-	}
-
-	existing := make(map[string]bool)
-	for _, id := range replicaNodes {
-		existing[id] = true
-	}
-
-	candidates := []string{}
-	s.mu.RLock()
-	for _, node := range s.Nodes {
-		if node.ServerID == s.ServerID {
+	for _, idx := range ranges {
+		// Get range info inside lock to be safe
+		var replicaNodes []string
+		var start, end uint16
+		s.mu.RLock()
+		if idx < 0 || idx >= len(s.Metadata) {
+			s.mu.RUnlock()
 			continue
 		}
-		if existing[node.ServerID] {
-			continue
-		}
-		candidates = append(candidates, node.ServerID)
-	}
-	s.mu.RUnlock()
-	//Not enough nodes in cluster
-	if len(candidates) == 0 {
-		log.Printf("[WARN] Server %s: no available nodes for new replicas (cluster too small)", s.ServerID)
-		return
-	}
-	log.Printf("❎[INFO] GETTING IN\n")
+		node := s.Metadata[idx]
+		replicaNodes = append([]string(nil), node.Nodes...)
+		start = node.Start
+		end = node.End
+		s.mu.RUnlock()
 
-	//Not enough nodes to fully satisfy replication factor
-	if len(replicaNodes)+len(candidates) < required {
-		log.Printf("[WARN] Server %s: cannot reach replication factor %d (only %d candidates available)",
-			s.ServerID, required, len(candidates))
-	}
-
-	//Shuffle for load distribution
-	rand.Seed(time.Now().UnixNano())
-	rand.Shuffle(len(candidates), func(i, j int) {
-		candidates[i], candidates[j] = candidates[j], candidates[i]
-	})
-
-	needed := required - currentCount
-	if needed > len(candidates) {
-		needed = len(candidates)
-	}
-	newReplicas := candidates[:needed]
-
-	for _, replicaID := range newReplicas {
-		log.Printf("[INFO] Assigning %s as new replica for server %s", replicaID, s.ServerID)
-	}
-
-	s.mu.RLock()
-	nodes := make([]*Node, 0, len(s.Nodes))
-	for _, node := range s.Nodes {
-		nodes = append(nodes, node)
-	}
-	s.mu.RUnlock()
-
-	for _, node := range nodes {
-		if node.ServerID == s.ServerID {
+		currentCount := len(replicaNodes)
+		required := s.ReplicationFactor
+		if currentCount >= required {
+			log.Printf("[INFO] Server %s range %d-%d already has %d replicas (required: %d)",
+				s.ServerID, start, end, currentCount, required)
 			continue
 		}
 
-		addr, _ := utils.BumpPort(node.Addr, 10000)
-		conn, err := net.DialTimeout("tcp", addr, 10*time.Second)
-		if err != nil {
-			fmt.Printf("ERR: RepairReplication: %s\n", err.Error())
+		// Build set of existing replicas
+		existing := make(map[string]bool)
+		existing[s.ServerID] = true // Don't assign self as replica
+		for _, id := range replicaNodes {
+			existing[id] = true
+		}
+
+		// Get candidate nodes
+		candidates := []string{}
+		s.mu.RLock()
+		for _, node := range s.Nodes {
+			if existing[node.ServerID] {
+				continue
+			}
+			candidates = append(candidates, node.ServerID)
+		}
+		s.mu.RUnlock()
+
+		// Check if we have any candidates
+		if len(candidates) == 0 {
+			log.Printf("[WARN] Server %s range %d-%d: no available nodes for new replicas (cluster too small)",
+				s.ServerID, start, end)
 			continue
 		}
 
-		msg := fmt.Sprintf("CMU REP ADD %s %s %s", newReplicas[0], strconv.FormatUint(uint64(start), 10), strconv.FormatUint(uint64(end), 10))
-		conn.Write([]byte(msg + "\n"))
-
-		response := make([]byte, 1024)
-		n, err := conn.Read(response)
-		if err != nil {
-			fmt.Printf("SendReplicaCMD:failed to read from peer(ID:%s) %s: %s\n", s.ServerID, addr, err.Error())
-			conn.Close()
-			return
+		// Calculate how many replicas we need to add
+		needed := required - currentCount
+		if needed > len(candidates) {
+			needed = len(candidates)
+			log.Printf("[WARN] Server %s range %d-%d: cannot reach replication factor %d (only %d candidates available)",
+				s.ServerID, start, end, required, len(candidates))
 		}
 
-		str := strings.TrimSpace(string(response[:n]))
-		if str != "CMU ACK" {
-			log.Printf("SendReplicaCMD:failed to get ACK for cmd:CMU REP ADD\n")
-			conn.Close()
-			return
+		// Shuffle candidates for load distribution
+		rand.Shuffle(len(candidates), func(i, j int) {
+			candidates[i], candidates[j] = candidates[j], candidates[i]
+		})
+
+		newReplicas := candidates[:needed]
+
+		log.Printf("[INFO] Server %s range %d-%d: need to add %d replicas", s.ServerID, start, end, needed)
+		for _, replicaID := range newReplicas {
+			log.Printf("[INFO] Assigning %s as new replica for server %s range %d-%d",
+				replicaID, s.ServerID, start, end)
 		}
 
-		fmt.Printf("[CMU REP UPDATE] for %s SUCCESS\n", addr)
+		// Send CMU REP ADD to every peer (every node except this master)
+		peers := s.GetNodesSnapshot()
+		for _, peer := range peers {
+			if peer.ServerID == s.ServerID {
+				continue // skip master (self)
+			}
+
+			busAddr, err := utils.BumpPort(peer.Addr, 10000)
+			if err != nil {
+				log.Printf("[WARN] Server %s: failed to derive bus port for peer %s: %v", s.ServerID, peer.ServerID, err)
+				continue
+			}
+
+			// Open a single connection to the peer and reuse it for all replica additions
+			conn, err := net.DialTimeout("tcp", busAddr, 10*time.Second)
+			if err != nil {
+				log.Printf("[ERROR] Server %s: failed to connect to peer %s (%s): %v", s.ServerID, peer.ServerID, busAddr, err)
+				continue
+			}
+
+			func() {
+				defer conn.Close()
+
+				for _, replicaID := range newReplicas {
+					// Send CMU REP ADD message: CMU REP ADD <SERVERID> <START> <END>
+					msg := fmt.Sprintf("CMU REP ADD %s %d %d\n", replicaID, start, end)
+					if _, err := conn.Write([]byte(msg)); err != nil {
+						log.Printf("[ERROR] Server %s: failed to send CMU REP ADD to %s: %v", s.ServerID, peer.ServerID, err)
+						continue
+					}
+
+					// Read response for this replica addition
+					response := make([]byte, 1024)
+					n, err := conn.Read(response)
+					if err != nil {
+						log.Printf("[ERROR] Server %s: failed to read CMU ACK from %s: %v", s.ServerID, peer.ServerID, err)
+						return
+					}
+
+					respStr := strings.TrimSpace(string(response[:n]))
+					if respStr != "CMU ACK" {
+						log.Printf("[ERROR] Server %s: unexpected response from %s for CMU REP ADD: %s", s.ServerID, peer.ServerID, respStr)
+						continue
+					}
+
+					log.Printf("[SUCCESS] Server %s: notified peer %s about new replica %s for range %d-%d", s.ServerID, peer.ServerID, replicaID, start, end)
+				}
+			}()
+		}
+
+		// Update metadata
+		// Find the range index without holding lock first
+		var metaIdx int
+		s.mu.RLock()
+		metaIdx = -1
+		for i, r := range s.Metadata {
+			if r.Start == start && r.End == end {
+				metaIdx = i
+				break
+			}
+		}
+		s.mu.RUnlock()
+
+		if metaIdx == -1 {
+			log.Printf("[ERROR] Server %s: could not find range %d-%d after repair", s.ServerID, start, end)
+			continue
+		}
+
+		s.mu.Lock()
+		for _, replicaID := range newReplicas {
+			if existing[replicaID] {
+				continue
+			}
+			s.Metadata[metaIdx].Nodes = append(s.Metadata[metaIdx].Nodes, replicaID)
+			existing[replicaID] = true
+			s.Cluster_Version++
+		}
+		s.mu.Unlock()
 	}
-
-	idx := s.FindRangeIndex(start, end)
-	s.mu.Lock()
-	s.Metadata[idx].Nodes = append(s.Metadata[idx].Nodes, newReplicas[0])
-	s.mu.Unlock()
 }
