@@ -67,7 +67,49 @@ func HandleClusterMetdataUpdate(conn net.Conn, parts []string, s *config.Server,
 			}
 
 			serverID := parts[3]
-			s.RepairRangeOnMaster(serverID)
+			mapping, _ := s.RepairRangeOnMaster(serverID)
+
+			for key, replicas := range mapping {
+				// key is "start-end"
+				parts := strings.Split(key, "-")
+				if len(parts) != 2 {
+					log.Printf("[WARN] invalid mapping key: %q", key)
+					continue
+				}
+
+				start, err := utils.ParseUint16(parts[0])
+				if err != nil {
+					log.Printf("[WARN] bad start in mapping key %q: %v", key, err)
+					continue
+				}
+				end, err := utils.ParseUint16(parts[1])
+				if err != nil {
+					log.Printf("[WARN] bad end in mapping key %q: %v", key, err)
+					continue
+				}
+
+				idx := s.FindRangeIndex(start, end)
+				r, ok := s.GetSlotRangeByIndex(idx)
+				if !ok {
+					log.Printf("[WARN] no slot-range found for %d-%d (key=%s)", start, end, key)
+					continue
+				}
+
+				log.Printf("[💖INFO] rangeMaster: %s | ServerID: %s")
+				// only the master for this range should initiate transfers
+				if r.MasterID != s.ServerID {
+					continue
+				}
+
+				log.Printf("[💖INFO] MASTER")
+
+				for _, replicaID := range replicas {
+					// replicate: master -> replicaID for this range
+					log.Printf("[INFO] master %s initiating transfer for range %d-%d -> %s", s.ServerID, start, end, replicaID)
+					go InitiateDataTransferToReplica(replicaID, start, end, db, s)
+				}
+			}
+
 		}
 	default:
 		{
