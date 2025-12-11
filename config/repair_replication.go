@@ -45,7 +45,7 @@ func (s *Server) RepairReplication(serverID string) {
 			existing[id] = true
 		}
 
-		// Get candidate nodes
+		//Get candidate nodes
 		candidates := []string{}
 		s.mu.RLock()
 		for _, node := range s.Nodes {
@@ -83,6 +83,12 @@ func (s *Server) RepairReplication(serverID string) {
 			log.Printf("[INFO] Assigning %s as new replica for server %s range %d-%d",
 				replicaID, s.ServerID, start, end)
 		}
+		// Send command to master of each modified range to notify about new replicas. Tell the master to
+		// Send the data to the new replicas. During which the master should not accept writes for that range. 
+
+		// How about when the nodes receive the CMU REP ADD command, they check if they are master for that range,
+		// if yes, they initiate a data transfer to the new replica?
+
 
 		// Send CMU REP ADD to every peer (every node except this master)
 		peers := s.GetNodesSnapshot()

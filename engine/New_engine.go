@@ -34,7 +34,7 @@ func NewEngine() (*Engine, error) {
 
 		errMsg := strings.ToLower(err.Error())
 
-		// ✅ WINDOWS + LINUX + MAC FILE LOCK DETECTION
+		// WINDOWS + LINUX + MAC FILE LOCK DETECTION
 		if strings.Contains(errMsg, "lock") ||
 			strings.Contains(errMsg, "resource temporarily unavailable") ||
 			strings.Contains(errMsg, "being used by another process") ||

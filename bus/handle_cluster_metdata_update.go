@@ -3,14 +3,16 @@ package bus
 import (
 	"fmt"
 	"iris/config"
+	"iris/engine"
 	"iris/utils"
+	"log"
 	"net"
 	"strings"
 )
 
 // CMU REP : ADD/REMOVE/UPDATE replica list of a range/server
 // CMU REP ADD SERVERID START END
-func HandleClusterMetdataUpdate(conn net.Conn, parts []string, s *config.Server) {
+func HandleClusterMetdataUpdate(conn net.Conn, parts []string, s *config.Server, db *engine.Engine) {
 	switch strings.ToUpper(parts[1]) {
 	case "REP":
 		{
@@ -29,6 +31,24 @@ func HandleClusterMetdataUpdate(conn net.Conn, parts []string, s *config.Server)
 			if err != nil {
 				conn.Write([]byte("ERR: invalid END value\n"))
 				return
+			}
+
+			// check if the current server is master for the range
+			masterIdx := s.FindRangeIndex(start, end)
+			master, ok := s.GetSlotRangeByIndex(masterIdx)
+			if !ok {
+				conn.Write([]byte("ERR: internal error\n"))
+				return
+			}
+
+			log.Printf("[🌹INFO] %s | %s", master.MasterID, serverID)
+			if master.MasterID == s.ServerID {
+				// this server is master for the range, send the data to the new replica
+				// initiate data transfer to the new replica
+
+				log.Println("[🌹INFO] this server is the master")
+				// @@disable writes for the range during transfer
+				go InitiateDataTransferToReplica(serverID, start, end, db, s)
 			}
 
 			if err := s.AddReplicaToRange(serverID, start, end); err != nil {

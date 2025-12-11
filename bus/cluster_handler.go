@@ -58,7 +58,7 @@ func HandleClusterCommand(cmd string, conn net.Conn, s *config.Server, db *engin
 
 	case "CMU":
 		{
-			HandleClusterMetdataUpdate(conn, parts, s)
+			HandleClusterMetdataUpdate(conn, parts, s, db)
 			db.SaveServerMetadata(s)
 		}
 	case "LEAVE":

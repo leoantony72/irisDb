@@ -1,6 +1,8 @@
 package config
 
-import "sync"
+import (
+	"sync"
+)
 
 type Node struct {
 	ServerID string
