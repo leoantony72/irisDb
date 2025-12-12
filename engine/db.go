@@ -142,6 +142,28 @@ func (e *Engine) HandleCommand(cmd string, conn net.Conn, server *config.Server)
 			}
 		}
 
+	case "KEYS":
+		{
+			// return all keys in the database
+			// var keys []string
+			iter, err := e.Db.NewIter(&pebble.IterOptions{})
+			if err != nil {
+				errMsg := fmt.Sprintf("ERR iterator failed: %s\n", err.Error())
+				conn.Write([]byte(errMsg))
+				return
+			}
+			for iter.First(); iter.Valid(); iter.Next() {
+				// keys = append(keys, string(iter.Key()))
+				if string(iter.Key()) == "config:server:metadata" {
+					continue
+				}
+				msg := iter.Key()
+				msg = append(msg, '\n')
+				conn.Write(msg)
+			}
+			iter.Close()
+		}
+
 	case "SHUTDOWN":
 		{
 			if len(parts) != 1 {
