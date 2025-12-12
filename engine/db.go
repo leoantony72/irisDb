@@ -39,8 +39,14 @@ func (e *Engine) HandleCommand(cmd string, conn net.Conn, server *config.Server)
 				return
 			}
 			hash := utils.CalculateCRC16([]byte(parts[1]))
-			master_slot := FindNodeIDX(server, hash%server.N)
-			g := server.Metadata[master_slot].MasterID
+			master_slot := server.FindNodeIdx(hash % server.N)
+			sr, ok := server.GetSlotRangeByIndex(master_slot)
+			if !ok {
+				// handle error (range not found)
+				conn.Write([]byte("ERR Internal Error\n"))
+				return
+			}
+			g := sr.MasterID
 
 			//check if the server is the master node for this slot(hash)
 			if server.Metadata[master_slot].MasterID == server.ServerID {
@@ -88,7 +94,7 @@ func (e *Engine) HandleCommand(cmd string, conn net.Conn, server *config.Server)
 					return
 				}
 
-				expectedResponse := "ACK REP"
+				expectedResponse := "ACK INS"
 
 				reader := bufio.NewReader(Sconn)
 				resp, _ := reader.ReadString('\n')

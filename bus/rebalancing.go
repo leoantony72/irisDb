@@ -70,7 +70,7 @@ func sendKeyValue(serverID string, key, value []byte, s *config.Server) error {
 	defer Sconn.Close()
 	//MESSAGE FORMAT: INS KEY VALUE
 	//RESPONSE FORMAT: ACK KEY
-	msg := fmt.Sprintf("INS %s %s\n", key, value)
+	msg := fmt.Sprintf("REP %s %s\n", key, value)
 	_, err = Sconn.Write([]byte(msg))
 	if err != nil {
 		Sconn.Close()

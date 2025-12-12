@@ -35,6 +35,10 @@ func InitiateDataTransferToReplica(serverID string, start, end uint16, db *engin
 		key := append([]byte{}, iter.Key()...)
 		val := append([]byte{}, iter.Value()...)
 
+		if string(key) == "config:server:metadata" {
+			continue
+		}
+
 		slot := utils.CalculateCRC16(key) % s.N
 		if slotInRange(slot, start, end) {
 			if err := sendKeyValue(serverID, key, val, s); err != nil {
@@ -70,7 +74,7 @@ func sendKeyValue(serverID string, key, value []byte, s *config.Server) error {
 	defer Sconn.Close()
 	//MESSAGE FORMAT: INS KEY VALUE
 	//RESPONSE FORMAT: ACK KEY
-	msg := fmt.Sprintf("INS %s %s\n", key, value)
+	msg := fmt.Sprintf("REP %s %s\n", key, value)
 	_, err = Sconn.Write([]byte(msg))
 	if err != nil {
 		Sconn.Close()
