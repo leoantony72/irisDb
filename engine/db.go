@@ -7,6 +7,7 @@ import (
 	"iris/utils"
 	"log"
 	"net"
+	"os"
 	"strings"
 	"time"
 
@@ -196,6 +197,7 @@ func (e *Engine) HandleCommand(cmd string, conn net.Conn, server *config.Server)
 				conn.Write([]byte(errMsg))
 				return
 			}
+
 			// format: LEAVE SID
 			msg := fmt.Sprintf("LEAVE %s\n", server.ServerID)
 			_, err = Sconn.Write([]byte(msg))
@@ -218,12 +220,35 @@ func (e *Engine) HandleCommand(cmd string, conn net.Conn, server *config.Server)
 				errMsg := fmt.Sprintf("ERR SHUTDOWN failed: %s\n", "Err Response From Master Server")
 				conn.Write([]byte(errMsg))
 				return
-			} else {
-				conn.Write([]byte("SHUTDOWN successfull\n"))
 			}
 
-			//delete all the config data from pebble database
+			// STEP 1: Send success messages to client IMMEDIATELY
+			conn.Write([]byte("OK shutting down\n"))
+			conn.Write([]byte("SHUTDOWN successfull\n"))
+			server.ShutdownOnce.Do(func() {
 
+				server.ShuttingDown.Store(true)
+				// Close BOTH listeners
+				if server.Listener != nil {
+					server.Listener.Close()
+				}
+				if server.BusListener != nil {
+					server.BusListener.Close()
+				}
+
+				func() {
+					server.Wg.Wait()
+					log.Println("All connections closed, proceeding with shutdown...")
+
+					e.Db.Flush()
+					//delete all the config data from pebble database
+					e.Db.Delete([]byte("config:server:metadata"), pebble.Sync)
+					e.Db.Close()
+					log.Println("[INFO] IrisDb exited cleanly")
+					os.Exit(0)
+				}()
+
+			})
 		}
 	}
 

@@ -1,7 +1,9 @@
 package config
 
 import (
+	"net"
 	"sync"
+	"sync/atomic"
 )
 
 type Node struct {
@@ -46,6 +48,11 @@ type Server struct {
 	BusPort           string
 	Prepared          map[string]*PrepareMessage
 	mu                sync.RWMutex
+	Listener          net.Listener
+	BusListener       net.Listener
+	ShuttingDown      atomic.Bool
+	Wg                sync.WaitGroup
+	ShutdownOnce      sync.Once
 }
 
 func (s *Server) GetClusterVersion() uint64 {

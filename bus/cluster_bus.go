@@ -19,15 +19,22 @@ func NewBusRoute(server *config.Server, db *engine.Engine) {
 		log.Fatalf("Coudn't start bus at port:%s, err: %s \n", server.BusPort, err.Error())
 		//exits
 	}
+	server.BusListener = lis
 
 	log.Printf("🚀Running BusPort at 127.0.0.1:%s (IPv4 only)", server.BusPort)
 
 	for {
 		conn, err := lis.Accept()
 		if err != nil {
+			if server.ShuttingDown.Load() {
+				log.Println("[INFO] Bus listener stopped (shutdown in progress)")
+				return
+			}
 			log.Printf("Coudn't accept connection, err:%s\n", err.Error())
 			continue
 		}
+
+		server.Wg.Add(1)
 		go handleConnection(conn, server, db)
 	}
 }
@@ -36,9 +43,13 @@ func handleConnection(conn net.Conn, server *config.Server, db *engine.Engine) {
 	defer conn.Close()
 	reader := bufio.NewReader(conn)
 	for {
+		if server.ShuttingDown.Load() {
+			log.Println("[INFO] Bus connection closing due to server shutdown")
+			return
+		}
 		// Set read deadline to detect stalled connections
 		conn.SetReadDeadline(time.Now().Add(1 * time.Minute))
-		
+
 		line, err := reader.ReadString('\n')
 		if err != nil {
 			if err != io.EOF {
@@ -46,9 +57,9 @@ func handleConnection(conn net.Conn, server *config.Server, db *engine.Engine) {
 			}
 			break
 		}
-		
+
 		trimmedCmd := strings.TrimSpace(line)
-		
+
 		// Special handling for SNAPSHOT: it has binary data following the text command
 		// We need to handle it before the buffered reader interferes
 		if strings.ToUpper(trimmedCmd) == "SNAPSHOT" {
@@ -59,7 +70,7 @@ func handleConnection(conn net.Conn, server *config.Server, db *engine.Engine) {
 			HandleClusterSnapshot(reader, conn, server)
 			continue
 		}
-		
+
 		HandleClusterCommand(trimmedCmd, conn, server, db)
 	}
 }

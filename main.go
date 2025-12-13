@@ -56,7 +56,8 @@ func main() {
 		log.Fatalf("Coudn't start Irisdb at port:%s, err: %s \n", server.Port, err.Error())
 		//exits
 	}
-	defer lis.Close()
+	server.Listener = lis
+	// defer lis.Close()
 	log.Printf("🍔IrisDb started at port:%s \n", server.Port)
 	log.Printf("📦Server ID:%s\n", server.ServerID)
 	log.Printf("🌐Host IP:%s | Addr:%s | Bus Port:%s\n", server.Host, server.Addr, server.BusPort)
@@ -96,9 +97,15 @@ func main() {
 	for {
 		conn, err := lis.Accept()
 		if err != nil {
+			if server.ShuttingDown.Load() {
+				log.Println("[INFO] Server stopped accepting connections")
+				return
+			}
 			log.Printf("Coudn't accept connection, err:%s\n", err.Error())
 			continue
 		}
+
+		server.Wg.Add(1)
 		go handleConnection(conn, IrisDb, server)
 	}
 }
@@ -148,16 +155,21 @@ func handleDistributionFromMaster(mapping map[string][]string, s *config.Server,
 }
 
 func handleConnection(conn net.Conn, db *engine.Engine, server *config.Server) {
+	defer server.Wg.Done()
 	defer conn.Close()
 	reader := bufio.NewReader(conn)
-	// buffer := make([]byte, 1024)
 	for {
 		line, err := reader.ReadString('\n')
 		if err != nil {
 			if err != io.EOF {
 				log.Printf("Reading err: %s", err.Error())
 			}
-			break
+			return
+		}
+
+		if server.ShuttingDown.Load() {
+			log.Println("[INFO] Server is shutting down, closing connection")
+			return
 		}
 
 		db.HandleCommand(strings.TrimSpace(line), conn, server)

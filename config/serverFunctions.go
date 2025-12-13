@@ -272,29 +272,46 @@ func (s *Server) GetNodesSnapshot() []Node {
 
 // FindNodeIdx returns the index in s.Metadata of the SlotRange that contains `slot`.
 // Returns -1 if metadata is empty or no matching range is found.
-//Assumes s.Metadata is sorted by SlotRange.End ascending.
+// Assumes s.Metadata is sorted by SlotRange.End ascending.
 func (s *Server) FindNodeIdx(slot uint16) int {
-    s.mu.RLock()
-    defer s.mu.RUnlock()
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 
-    n := len(s.Metadata)
-    if n == 0 {
-        return -1
-    }
+	n := len(s.Metadata)
+	if n == 0 {
+		return -1
+	}
 
-    idx := sort.Search(n, func(i int) bool {
-        return s.Metadata[i].End >= slot
-    })
+	idx := sort.Search(n, func(i int) bool {
+		return s.Metadata[i].End >= slot
+	})
 
-    if idx == n {
-        idx = 0
-    }
-    r := s.Metadata[idx]
-    if r == nil {
-        return -1
-    }
-    if slot < r.Start || slot > r.End {
-        return -1
-    }
-    return idx
+	if idx == n {
+		idx = 0
+	}
+	r := s.Metadata[idx]
+	if r == nil {
+		return -1
+	}
+	if slot < r.Start || slot > r.End {
+		return -1
+	}
+	return idx
 }
+
+// func (s *Server) BeginShutdown() {
+// 	s.ShutdownOnce.Do(func() {
+// 		log.Println("[INFO] Shutdown initiated")
+
+// 		s.ShuttingDown.Store(true)
+
+// 		if s.Listener != nil {
+// 			s.Listener.Close()
+// 		}
+
+// 		go func() {
+// 			s.Wg.Wait()
+// 			s.ShutdownCh <- struct{}{}
+// 		}()
+// 	})
+// }
