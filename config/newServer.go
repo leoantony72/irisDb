@@ -9,7 +9,7 @@ import (
 	"github.com/google/uuid"
 )
 
-func NewServer() *Server {
+func NewServer(group_name *string) *Server {
 	name := uuid.New().String()
 	ip, err := utils.GetLocalIp()
 	if err != nil {
@@ -43,7 +43,7 @@ func NewServer() *Server {
 		}
 	}
 	selectedBusPort := possibleBusPorts[mainPortNum]
-	
+
 	// Verify bus port is available
 	busLis, err := net.Listen("tcp", ":"+selectedBusPort)
 	if err != nil {
@@ -67,8 +67,10 @@ func NewServer() *Server {
 	}
 
 	// node.Nodes = append(node.Nodes, &Node{ServerID: name, Addr: addr})
-	server.Nodes[name] = &Node{ServerID: name, Addr: addr}
+	server.Nodes[name] = &Node{ServerID: name, Addr: addr, Status: ALIVE, Group: *group_name}
 	server.Nnode = 1
+	server.Group = make(map[string]*GroupInfo)
+	server.Group[*group_name] = &GroupInfo{Name: *group_name, Nodes: []string{name}, Status: HEALTHY}
 
 	server.Metadata = append(server.Metadata, &SlotRange{
 		Start:    0,
@@ -76,7 +78,7 @@ func NewServer() *Server {
 		MasterID: name,
 		Nodes:    []string{},
 	})
-
+ 
 	log.Printf("🚀Server started on %s (bus: %s)", selectedPort, selectedBusPort)
 
 	return &server

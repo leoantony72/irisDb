@@ -20,6 +20,7 @@ import (
 
 func main() {
 	clusterAddr := flag.String("cluster_server", "", "Address of a server in the cluster to join (optional)")
+	node_group := flag.String("node_group", "", " Group of the node, eg: asia-ind, eu-west, us-east")
 	flag.Parse()
 
 	IrisDb, err := engine.NewEngine()
@@ -33,7 +34,7 @@ func main() {
 		server = loaded_data
 		log.Printf("[✅] Loaded server config from database. ServerID: %s", server.ServerID)
 	} else {
-		server = config.NewServer()
+		server = config.NewServer(node_group)
 		log.Printf("[✅] Created new server config. ServerID: %s", server.ServerID)
 	}
 
@@ -91,6 +92,41 @@ func main() {
 			} else {
 				log.Printf("[✅ SUCCESS]: Replication factor met for server %s\n", server.ServerID)
 			}
+		}
+	}()
+
+	go func() {
+		for {
+			time.Sleep(15 * time.Second)
+			masterNode, ok := server.GetMasterNodeForRangeIdx(0)
+			if !ok {
+				return
+			}
+			if masterNode.ServerID == server.ServerID {
+				return
+			}
+			addr := masterNode.Addr
+			busAddr, _ := utils.BumpPort(addr, 10000)
+
+			conn, err := net.DialTimeout("tcp", busAddr, 2*time.Second)
+			if err != nil {
+				log.Printf("[WARNING]: Master node is unreachable: %v\n", err)
+				// disable writes and reads
+				continue
+			}
+			defer conn.Close()
+
+			// HEARTBEAT SID:<server_id> UNREACHABLE:<comma_separated_sids_or_empty> GROUP:<group> VERSION:<cluster_version>
+			unreachable_ids := server.UnreacableNodeList()
+			server_group := server.GetServerGroup()
+			version := server.GetClusterVersion()
+			msg := fmt.Sprintf("HEARTBEAT %s %s %s %d\n", server.ServerID, server_group, unreachable_ids, version)
+
+			_, err = conn.Write([]byte(msg))
+			if err != nil {
+				log.Printf("[WARNING]: Failed to send HEARTBEAT to master: %v\n", err)
+			}
+
 		}
 	}()
 

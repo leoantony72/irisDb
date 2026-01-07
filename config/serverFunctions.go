@@ -299,6 +299,25 @@ func (s *Server) FindNodeIdx(slot uint16) int {
 	return idx
 }
 
+func (s *Server) UnreacableNodeList() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	var b strings.Builder
+	for k, _ := range s.UnreahableNodes {
+		fmt.Fprintf(&b, "%s,", k)
+	}
+	return b.String()
+}
+
+func (s *Server) GetServerGroup() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	node := s.Nodes[s.ServerID]
+	return node.Group
+}
+
 // func (s *Server) BeginShutdown() {
 // 	s.ShutdownOnce.Do(func() {
 // 		log.Println("[INFO] Shutdown initiated")

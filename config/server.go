@@ -4,11 +4,37 @@ import (
 	"net"
 	"sync"
 	"sync/atomic"
+	"time"
+)
+
+type NodeStatus int
+
+const (
+	ALIVE NodeStatus = iota
+	SUSPECT
+	DEAD
+	PARTITIONED
 )
 
 type Node struct {
 	ServerID string
 	Addr     string
+	Status   NodeStatus
+	Group    string //asia-ind, eu-west, us-east
+}
+
+type GroupStatus int
+
+const (
+	HEALTHY GroupStatus = iota
+	SUSPECT_GROUP
+	PARTITIONED_GROUP
+)
+
+type GroupInfo struct {
+	Name   string
+	Nodes  []string
+	Status GroupStatus
 }
 
 // SlotRange defines each range, masterID and Replica Nodes
@@ -47,12 +73,17 @@ type Server struct {
 	Cluster_Version   uint64
 	BusPort           string
 	Prepared          map[string]*PrepareMessage
-	mu                sync.RWMutex
-	Listener          net.Listener
-	BusListener       net.Listener
-	ShuttingDown      atomic.Bool
-	Wg                sync.WaitGroup
-	ShutdownOnce      sync.Once
+
+	mu           sync.RWMutex
+	Listener     net.Listener
+	BusListener  net.Listener
+	ShuttingDown atomic.Bool
+	Wg           sync.WaitGroup
+	ShutdownOnce sync.Once
+
+	LastSeen        map[string]time.Time  // used by the master to track last seen times of nodes
+	Group           map[string]*GroupInfo //maps groups to node IDs
+	UnreahableNodes map[string]time.Time
 }
 
 func (s *Server) GetClusterVersion() uint64 {

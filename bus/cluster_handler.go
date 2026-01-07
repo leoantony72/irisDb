@@ -67,6 +67,11 @@ func HandleClusterCommand(cmd string, conn net.Conn, s *config.Server, db *engin
 			db.SaveServerMetadata(s)
 		}
 
+	case "HEARTBEAT":
+		{
+			HandleHeartbeat(conn, parts, s)
+		}
+
 	default:
 		conn.Write([]byte("ERR unknown command\n"))
 	}
