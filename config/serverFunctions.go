@@ -127,6 +127,7 @@ func (s *Server) ApplyCommitChanges(preparedMsg *PrepareMessage) error {
 	return nil
 }
 
+// HasNode checks if a node with the given ID exists in the server's node list.
 func (s *Server) HasNode(id string) bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
