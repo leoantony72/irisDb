@@ -72,6 +72,11 @@ func HandleClusterCommand(cmd string, conn net.Conn, s *config.Server, db *engin
 			HandleHeartbeat(conn, parts, s)
 		}
 
+	case "SUSPECT_LEADER":
+		{
+			HandleSuspectLeader(conn, parts, s)
+		}
+
 	default:
 		conn.Write([]byte("ERR unknown command\n"))
 	}

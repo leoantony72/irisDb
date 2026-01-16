@@ -18,6 +18,10 @@ import (
 	"iris/utils"
 )
 
+const (
+	MASTER_FAIL_THRESHOLD = 3
+)
+
 func main() {
 	clusterAddr := flag.String("cluster_server", "", "Address of a server in the cluster to join (optional)")
 	node_group := flag.String("node_group", "", " Group of the node, eg: asia-ind, eu-west, us-east")
@@ -112,11 +116,17 @@ func main() {
 			if err != nil {
 				log.Printf("[WARNING]: Master node is unreachable: %v\n", err)
 				// disable writes and reads
+				server.IncrMasterFailedAttempts()
+				if server.GetrMasterFailedAttempts() >= MASTER_FAIL_THRESHOLD {
+					log.Printf("[ERROR]: Master node unreachable for %d attempts. Initiating failover...\n", MASTER_FAIL_THRESHOLD)
+					server.InitiateMasterFailover(IrisDb)
+				}
 				continue
 			}
 			defer conn.Close()
+			server.ResetMasterFailedAttempts()
 
-			// HEARTBEAT SID:<server_id> UNREACHABLE:<comma_separated_sids_or_empty> GROUP:<group> VERSION:<cluster_version>
+			//HEARTBEAT SID:<server_id> UNREACHABLE:<comma_separated_sids_or_empty> GROUP:<group> VERSION:<cluster_version>
 			unreachable_ids := server.UnreacableNodeList()
 			server_group := server.GetServerGroup()
 			version := server.GetClusterVersion()
@@ -125,6 +135,24 @@ func main() {
 			_, err = conn.Write([]byte(msg))
 			if err != nil {
 				log.Printf("[WARNING]: Failed to send HEARTBEAT to master: %v\n", err)
+			}
+
+			response, err := bufio.NewReader(conn).ReadString('\n')
+			switch response {
+			case "OK\n":
+				return
+
+			case "VERSION_MISMATCH\n":
+				log.Println("[WARNING] VERSION MISMATCH FOUND")
+				// stop all the operations until metadata is updated
+				return
+
+			case "ERROR\n":
+				log.Println("[WARNING] Heartbeat ERROR from Master server")
+				return
+
+			default:
+				log.Printf("[WARNING] Unknown Response %s\n", response)
 			}
 
 		}
