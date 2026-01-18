@@ -1,10 +1,12 @@
 package config
 
 import (
+	"bufio"
 	"fmt"
 	"iris/utils"
 	"log"
 	"net"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -91,6 +93,7 @@ type Server struct {
 
 	MasterFailedAttempts int
 	SuspectLeaderMsg     map[string]time.Time
+	Votes                map[string]bool
 }
 
 func (s *Server) GetClusterVersion() uint64 {
@@ -152,6 +155,7 @@ func (s *Server) CheckMasterFailover() {
 
 	if len(s.SuspectLeaderMsg) >= quorum {
 		// send REQ VOTE TO ALL the nodes to become master
+		s.SendReqVoteToAll()
 	} else {
 		log.Printf("[INFO]: Not enough SUSPECT_LEADER messages to initiate failover on server %s\n", s.ServerID)
 		return
@@ -159,7 +163,97 @@ func (s *Server) CheckMasterFailover() {
 
 }
 
-func (s *Server) InitiateMasterFailover(IrisDb *Server) {
+func (s *Server) SendReqVoteToAll() {
+	connectedNodes := s.GetNodesSnapshot()
+
+	for _, node := range connectedNodes {
+		bumpAddr, _ := utils.BumpPort(node.Addr, 10000)
+
+		conn, err := net.DialTimeout("tcp", bumpAddr, 2*time.Second)
+		if err != nil {
+			log.Printf("[ERROR]: Failed to connect to node %s for REQ VOTE on server %s: %v\n", node.ServerID, s.ServerID, err)
+			continue
+		}
+		defer conn.Close()
+
+		// REQ_VOTE <current_node_id> <failed_master_node_id> <cluster_version>
+		msg := fmt.Sprintf("REQ_VOTE %s %s %d\n", s.ServerID, s.MasterNodeID, s.GetClusterVersion())
+		_, err = conn.Write([]byte(msg))
+		if err != nil {
+			log.Printf("[ERROR]: Failed to send REQ_VOTE to node %s on server %s: %v\n", node.ServerID, s.ServerID, err)
+			continue
+		}
+
+		reader := bufio.NewReader(conn)
+		response, err := reader.ReadString('\n')
+		if err != nil {
+			log.Printf("[ERROR]: Failed to read REQ_VOTE response from node %s on server %s: %v\n", node.ServerID, s.ServerID, err)
+			continue
+		}
+		response = strings.TrimSpace(response)
+
+		switch response {
+		case "VOTE_GRANTED":
+			{
+				log.Printf("[INFO]: VOTE_GRANTED received from node %s on server %s\n", node.ServerID, s.ServerID)
+				s.mu.Lock()
+				s.Votes[node.ServerID] = true
+				s.mu.Unlock()
+
+			}
+		case "VOTE_DENIED":
+			{
+				log.Printf("[INFO]: VOTE_DENIED received from node %s on server %s\n", node.ServerID, s.ServerID)
+				s.mu.Lock()
+				s.Votes[node.ServerID] = false
+				s.mu.Unlock()
+
+			}
+
+		case "ERR_STALE_CLUSTER_VERSION":
+			{
+				log.Printf("[INFO]: ERR_STALE_CLUSTER_VERSION received from node %s on server %s\n", node.ServerID, s.ServerID)
+			}
+
+		default:
+			{
+				log.Printf("[INFO]: Unknown response to REQ_VOTE from node %s on server %s: %s\n", node.ServerID, s.ServerID, response)
+			}
+		}
+
+	}
+
+	s.EvaluateElectionResult()
+}
+
+func (s *Server) EvaluateElectionResult() {
+	s.mu.Lock()
+	totalNodes := len(s.Nodes)
+	granted := 0
+	for _, v := range s.Votes {
+		if v {
+			granted++
+		}
+	}
+	s.mu.Unlock()
+
+	majority := (totalNodes / 2) + 1
+
+	if granted >= majority {
+		log.Printf("[ELECTION]: Won with %d votes\n", granted)
+		s.BecomeLeader()
+	}
+}
+
+func (s *Server) BecomeLeader() {
+	log.Printf("[ELECTION]: Node %s becoming new master\n", s.ServerID)
+	s.UpdateMasterNodeID(s.ServerID)
+
+	// Remove the current Master node from all the metadata
+	// Send Every Node the new SNAPSHOT of cluster metadata
+}
+
+func (s *Server) InitiateMasterFailover() {
 	log.Printf("[INFO]: Initiating master failover on server %s\n", s.ServerID)
 
 	// send the failover command to next node in the cluster, from the metadata index

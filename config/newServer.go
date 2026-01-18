@@ -71,14 +71,16 @@ func NewServer(group_name *string) *Server {
 	server.Nnode = 1
 	server.Group = make(map[string]*GroupInfo)
 	server.Group[*group_name] = &GroupInfo{Name: *group_name, Nodes: []string{name}, Status: HEALTHY}
+	server.MasterNodeID = name
 
+	server.Votes = make(map[string]bool)
 	server.Metadata = append(server.Metadata, &SlotRange{
 		Start:    0,
 		End:      16383,
 		MasterID: name,
 		Nodes:    []string{},
 	})
- 
+
 	log.Printf("🚀Server started on %s (bus: %s)", selectedPort, selectedBusPort)
 
 	return &server

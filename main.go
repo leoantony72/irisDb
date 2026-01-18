@@ -119,7 +119,7 @@ func main() {
 				server.IncrMasterFailedAttempts()
 				if server.GetrMasterFailedAttempts() >= MASTER_FAIL_THRESHOLD {
 					log.Printf("[ERROR]: Master node unreachable for %d attempts. Initiating failover...\n", MASTER_FAIL_THRESHOLD)
-					server.InitiateMasterFailover(IrisDb)
+					server.InitiateMasterFailover()
 				}
 				continue
 			}
@@ -315,7 +315,7 @@ func joinCluster(addr string, server *config.Server, db *engine.Engine) error {
 			return fmt.Errorf("invalid cluster version in JOIN_SUCCESS: %w", err)
 		}
 		server.UpdateClusterVersion(uint64(clusterVersion))
-
+		server.MasterNodeID, _ = server.GetServerIDFromAddr(addr)
 		log.Printf("✅ Successfully joined cluster via %s. This server (%s) is responsible for SlotRange [%d - %d].", addr, server.ServerID, assignedStart, assignedEnd)
 	} else {
 

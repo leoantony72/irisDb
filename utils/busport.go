@@ -24,3 +24,7 @@ func BumpPort(addr string, delta int) (string, error) {
 
 	return net.JoinHostPort(host, strconv.Itoa(newPort)), nil
 }
+
+func ReverseBumpPort(addr string, delta int) (string, error){
+	return BumpPort(addr, -delta)
+}

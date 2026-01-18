@@ -319,6 +319,20 @@ func (s *Server) GetServerGroup() string {
 	return node.Group
 }
 
+func (s *Server) GetServerIDFromAddr(address string) (string, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	address, _ = utils.ReverseBumpPort(address, 10000)
+	for _, node := range s.Nodes {
+		if node.Addr == address {
+			return node.ServerID, true
+		}
+	}
+
+	return "", false
+}
+
 // func (s *Server) BeginShutdown() {
 // 	s.ShutdownOnce.Do(func() {
 // 		log.Println("[INFO] Shutdown initiated")
