@@ -165,6 +165,7 @@ func main() {
 				// stop all the operations until metadata is updated
 				server.GlobalPause.Store(true)
 				server.RequestMetadataSnapShot()
+				server.GlobalPause.Store(false)
 				continue
 
 			case "ERROR\n":
