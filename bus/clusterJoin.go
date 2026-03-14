@@ -18,9 +18,29 @@ func HandleJoin(conn net.Conn, parts []string, s *config.Server, db *engine.Engi
 	}
 	serverID := parts[1]
 	group := parts[4]
+
 	if s.HasNode(serverID) {
 		log.Printf("🧀SERVER ID:%s REJOINED SUCESSFULLY", serverID)
-		err := sendClusterMetadata(conn, s)
+
+		// ✅ UPDATE the rejoined node's information
+		ip, _, _ := net.SplitHostPort(conn.RemoteAddr().String())
+		if ip == "::1" || ip == "127.0.0.1" || ip == "localhost" {
+			ip = "localhost"
+		}
+		newServerPort := parts[2]
+		resourceScoreStr := parts[3]
+		resourceScore, err := parseResourceScore(resourceScoreStr)
+		if err != nil {
+			conn.Write([]byte(fmt.Sprintf("ERR invalid resource score: %s\n", err.Error())))
+			return
+		}
+		newNodeAddr := net.JoinHostPort(ip, newServerPort)
+
+		// ✅ Use public method to update node
+		s.UpdateRejoiningNode(serverID, newNodeAddr, group, resourceScore)
+
+		// Send metadata to rejoining node
+		err = sendClusterMetadata(conn, s)
 		if err != nil {
 			log.Println("Error sending cluster metadata:", err)
 			return
@@ -30,10 +50,10 @@ func HandleJoin(conn net.Conn, parts []string, s *config.Server, db *engine.Engi
 		sendReJoinSuccess(s, conn, serverID, rangeIndices, int(s.GetClusterVersion()))
 		return
 	}
+
 	ip, _, _ := net.SplitHostPort(conn.RemoteAddr().String())
 
 	// Normalize loopback addresses to 127.0.0.1 for IPv4-only consistency
-	// This fixes Windows issues where localhost resolves to IPv6 first, causing dual-stack problems
 	if ip == "::1" || ip == "127.0.0.1" || ip == "localhost" {
 		ip = "localhost"
 	}
