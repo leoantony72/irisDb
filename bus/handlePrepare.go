@@ -15,15 +15,15 @@ import (
 
 // PREPARE <MessageID> <TargetNodeID> <TargetNodeAddr> <Start> <End> <ModifiedNodeID> <ModifiedReplicas> <TargetReplicas>
 func HandlePrepare(conn net.Conn, parts []string, s *config.Server) {
-	if len(parts) != 9 {
-		conn.Write([]byte("ERR: Usage: PREPARE <MessageID> <TargetNodeID> <TargetNodeAddr> <Start> <End> <ModifiedNodeID> <ModifiedReplicas> <TargetReplicas>\n"))
+	if len(parts) != 11 {
+		conn.Write([]byte("ERR: Usage: PREPARE <MessageID> <TargetNodeID> <TargetNodeAddr> <Start> <End> <ModifiedNodeID> <ModifiedReplicas> <TargetReplicas> <ResourceScore> <Group>\n"))
 		return
 	}
 
 	messageID := parts[1]
 	targetNodeID := parts[2]
 	targetNodeAddr := parts[3]
-
+	group := parts[10]
 	start, err := utils.ParseUint16(parts[4])
 	if err != nil {
 		conn.Write([]byte("ERR: invalid START value\n"))
@@ -49,6 +49,12 @@ func HandlePrepare(conn net.Conn, parts []string, s *config.Server) {
 		Treplicas = strings.Split(targetNode_replicaList, ",")
 	}
 
+	resourceScore, err := utils.ParseFloat64(parts[9])
+	if err != nil {
+		conn.Write([]byte("ERR: invalid RESOURCE_SCORE value\n"))
+		return
+	}
+
 	// SourceNodeID is this server (the receiver of PREPARE)
 	if err := s.AcceptPrepare(
 		messageID,
@@ -60,6 +66,8 @@ func HandlePrepare(conn net.Conn, parts []string, s *config.Server) {
 		modifiedNodeID,
 		Mreplicas,
 		Treplicas,
+		resourceScore,
+		group,
 	); err != nil {
 		log.Printf("PREPARE %s rejected: %v", messageID, err)
 		conn.Write([]byte(fmt.Sprintf("ERR: %v\n", err)))
@@ -98,7 +106,7 @@ func Prepare(
 	}
 
 	message := fmt.Sprintf(
-		"PREPARE %s %s %s %d %d %s %s %s\n",
+		"PREPARE %s %s %s %d %d %s %s %s %f %s\n",
 		messageID,
 		newNode.ServerID,
 		newNode.Addr,
@@ -107,6 +115,8 @@ func Prepare(
 		modifiedNode.ServerID,
 		modifiedReplicaList,
 		targetReplicaList,
+		newNode.ResourceScore,
+		newNode.Group,
 	)
 	expectedResp := fmt.Sprintf("PREPARE SUCCESS %s", messageID)
 
@@ -120,6 +130,8 @@ func Prepare(
 		modifiedNode.ServerID,
 		modifiedNode_replica_list,
 		targetNode_replica_list,
+		newNode.ResourceScore,
+		newNode.Group,
 	); err != nil {
 		log.Printf("Local prepared state update failed for MessageID %s: %v", messageID, err)
 		return "", false, fmt.Errorf("local prepare failed: %w", err)

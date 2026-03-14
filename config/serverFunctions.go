@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/gob"
 	"fmt"
 	"iris/utils"
 	"log"
@@ -13,10 +14,14 @@ import (
 // Sends the cmd(SET, DEL) to the replica's
 func (s *Server) SendReplicaCMD(cmd string, replicaID string) bool {
 	s.mu.RLock()
-	r := s.Nodes[replicaID]
-	s.mu.RUnlock()
-	busaddr, _ := utils.BumpPort(r.Addr, 10000)
-	conn, err := net.DialTimeout("tcp", busaddr, 10*time.Second)
+    r, exists := s.Nodes[replicaID]
+    if !exists {
+        s.mu.RUnlock()
+        return false
+    }
+    busAddr, _ := utils.BumpPort(r.Addr, 10000)
+    s.mu.RUnlock()
+	conn, err := net.DialTimeout("tcp", busAddr, 10*time.Second)
 	if err != nil {
 		fmt.Printf("ERR: SendReplicaCMD: %s\n", err.Error())
 		return false
@@ -27,7 +32,7 @@ func (s *Server) SendReplicaCMD(cmd string, replicaID string) bool {
 	response := make([]byte, 1024)
 	n, err := conn.Read(response)
 	if err != nil {
-		fmt.Printf("SendReplicaCMD:failed to read from peer(ID:%s) %s: %w\n", r.ServerID, busaddr, err.Error())
+		fmt.Printf("SendReplicaCMD:failed to read from peer(ID:%s) %s: %w\n", r.ServerID, busAddr, err.Error())
 		return false
 	}
 
@@ -81,7 +86,7 @@ func (s *Server) ApplyCommitChanges(preparedMsg *PrepareMessage) error {
 	// 1. Add the new node to the global nodes map
 	s.mu.Lock()
 	if _, ok := s.Nodes[preparedMsg.TargetNodeID]; !ok {
-		s.Nodes[preparedMsg.TargetNodeID] = &Node{ServerID: preparedMsg.TargetNodeID, Addr: preparedMsg.Addr}
+		s.Nodes[preparedMsg.TargetNodeID] = &Node{ServerID: preparedMsg.TargetNodeID, Addr: preparedMsg.Addr, ResourceScore: preparedMsg.ResourceScore}
 		s.Nnode++
 	}
 	s.mu.Unlock()
@@ -97,7 +102,7 @@ func (s *Server) ApplyCommitChanges(preparedMsg *PrepareMessage) error {
 			break
 		}
 	}
-	s.mu.Unlock()
+	s.mu.RUnlock()
 
 	if modifiedRangeIdx == -1 {
 		return fmt.Errorf("ModifiedNode SlotRange not found for expected split pattern. PreparedMsg: %+v, Current Metadata: %+v", preparedMsg, s.Metadata)
@@ -248,9 +253,7 @@ func (s *Server) GetCommitPeers() []Node {
 
 // Returns the basic info needed for the header.
 func (s *Server) GetBasicInfo() (serverID, host, addr, busPort string, version uint64, totalNodes, totalSlots uint16) {
-	log.Printf("GetBasicInfo: About to acquire read lock")
 	s.mu.RLock()
-	log.Printf("GetBasicInfo: Read lock acquired")
 	defer s.mu.RUnlock()
 
 	return s.ServerID, s.Host, s.Addr, s.BusPort, s.Cluster_Version, s.Nnode, s.N
@@ -324,13 +327,83 @@ func (s *Server) GetServerIDFromAddr(address string) (string, bool) {
 	defer s.mu.RUnlock()
 
 	address, _ = utils.ReverseBumpPort(address, 10000)
+	log.Printf("[🎶getserverID]ADDRESS: %s\n", address)
 	for _, node := range s.Nodes {
+		log.Printf("[🎶getserverID] addr %s:%s\n", address, node.Addr)
 		if node.Addr == address {
 			return node.ServerID, true
 		}
 	}
 
 	return "", false
+}
+
+func (s *Server) RequestMetadataSnapShot() error {
+	// Read shared state safely
+	s.mu.RLock()
+	masterID := s.MasterNodeID
+	currentVersion := s.Cluster_Version
+	if masterID == "" && len(s.Metadata) > 0 && s.Metadata[0] != nil {
+		masterID = s.Metadata[0].MasterID
+	}
+	selfID := s.ServerID
+	s.mu.RUnlock()
+
+	if masterID == "" {
+		return fmt.Errorf("RequestMetadataSnapShot: master ID is empty")
+	}
+
+	// If already master, no remote pull needed.
+	if masterID == selfID {
+		return nil
+	}
+
+	node, ok := s.GetConnectedNodeData(masterID)
+	if !ok {
+		return fmt.Errorf("RequestMetadataSnapShot: master node %s not found in nodes map", masterID)
+	}
+
+	busAddr, err := utils.BumpPort(node.Addr, 10000)
+	if err != nil {
+		return fmt.Errorf("RequestMetadataSnapShot: failed to derive bus address from %s: %w", node.Addr, err)
+	}
+
+	conn, err := net.DialTimeout("tcp", busAddr, 10*time.Second)
+	if err != nil {
+		return fmt.Errorf("RequestMetadataSnapShot: failed to connect to master %s at bus address %s: %w", masterID, busAddr, err)
+	}
+	defer conn.Close()
+
+	_ = conn.SetDeadline(time.Now().Add(15 * time.Second))
+
+	if _, err = conn.Write([]byte("REQ_METADATA\n")); err != nil {
+		return fmt.Errorf("RequestMetadataSnapShot: failed to send REQ_METADATA to master %s: %w", masterID, err)
+	}
+
+	var snapshot ClusterSnapshot
+	dec := gob.NewDecoder(conn)
+	if err := dec.Decode(&snapshot); err != nil {
+		return fmt.Errorf("RequestMetadataSnapShot: failed to decode snapshot from master %s: %w", masterID, err)
+	}
+
+	if len(snapshot.Metadata) == 0 {
+		return fmt.Errorf("RequestMetadataSnapShot: received empty metadata snapshot from master %s", masterID)
+	}
+
+	// Prevent rollback to older metadata.
+	if snapshot.ClusterVersion < currentVersion {
+		return fmt.Errorf(
+			"RequestMetadataSnapShot: stale snapshot from master %s (remote=%d local=%d)",
+			masterID, snapshot.ClusterVersion, currentVersion,
+		)
+	}
+
+	s.ApplyClusterSnapshot(snapshot)
+	log.Printf(
+		"RequestMetadataSnapShot: applied snapshot from master %s (version=%d nodes=%d ranges=%d)",
+		masterID, snapshot.ClusterVersion, snapshot.TotalNodes, len(snapshot.Metadata),
+	)
+	return nil
 }
 
 // func (s *Server) BeginShutdown() {

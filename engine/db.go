@@ -32,6 +32,11 @@ func (e *Engine) HandleCommand(cmd string, conn net.Conn, server *config.Server)
 		return
 	}
 
+	if server.GlobalPause.Load() {
+		conn.Write([]byte("ERR Server is paused. Please try again later.\n"))
+		return
+	}
+
 	switch strings.ToUpper(parts[0]) {
 	case "SET":
 		{

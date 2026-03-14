@@ -15,6 +15,8 @@ func (s *Server) AcceptPrepare(
 	modifiedNodeID string,
 	modifiedReplicas []string,
 	targetReplicas []string,
+	resourceScore float64,
+	group string,
 ) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -51,6 +53,8 @@ func (s *Server) AcceptPrepare(
 		ModifiedNodeID:          modifiedNodeID,
 		ModifiedNodeReplicaList: append([]string(nil), modifiedReplicas...),
 		TargetNodeReplicaList:   append([]string(nil), targetReplicas...),
+		ResourceScore:           resourceScore,
+		Group:                   group,
 	}
 
 	log.Printf("PREPARE message %s stored from %s.", messageID, sourceNodeID)
@@ -67,6 +71,8 @@ func (s *Server) AddLocalPrepare(
 	modifiedNodeID string,
 	modifiedReplicas []string,
 	targetReplicas []string,
+	resourceScore float64,
+	group string,
 ) error {
 	return s.AcceptPrepare(
 		messageID,
@@ -78,5 +84,7 @@ func (s *Server) AddLocalPrepare(
 		modifiedNodeID,
 		modifiedReplicas,
 		targetReplicas,
+		resourceScore,
+		group,
 	)
 }

@@ -197,7 +197,7 @@ func (s *Server) ForwardRepairRequestToMaster() (map[string][]string, bool) {
 		log.Printf("ForwardRepairRequestToMaster: no metadata available on server %s", s.ServerID)
 		return nil, false
 	}
-	masterID := s.Metadata[0].MasterID
+	masterID := s.MasterNodeID
 	s.mu.RUnlock()
 
 	// If this server is the master, handle locally

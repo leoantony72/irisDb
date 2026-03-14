@@ -1,6 +1,8 @@
 package bus
 
 import (
+	"bytes"
+	"encoding/gob"
 	"fmt"
 	"iris/config"
 	"iris/engine"
@@ -10,11 +12,12 @@ import (
 )
 
 func HandleJoin(conn net.Conn, parts []string, s *config.Server, db *engine.Engine) {
-	if len(parts) != 3 {
-		conn.Write([]byte("ERR usage: JOIN <SERVER_ID> <PORT>\n"))
+	if len(parts) != 5 {
+		conn.Write([]byte("ERR usage: JOIN <SERVER_ID> <PORT> <RESOURCE_SCORE> <GROUP>\n"))
 		return
 	}
 	serverID := parts[1]
+	group := parts[4]
 	if s.HasNode(serverID) {
 		log.Printf("🧀SERVER ID:%s REJOINED SUCESSFULLY", serverID)
 		err := sendClusterMetadata(conn, s)
@@ -32,14 +35,20 @@ func HandleJoin(conn net.Conn, parts []string, s *config.Server, db *engine.Engi
 	// Normalize loopback addresses to 127.0.0.1 for IPv4-only consistency
 	// This fixes Windows issues where localhost resolves to IPv6 first, causing dual-stack problems
 	if ip == "::1" || ip == "127.0.0.1" || ip == "localhost" {
-		ip = "127.0.0.1"
+		ip = "localhost"
 	}
 
 	newServerID := parts[1]
 	newServerPort := parts[2]
+	resourceScoreStr := parts[3]
+	resourceScore, err := parseResourceScore(resourceScoreStr)
+	if err != nil {
+		conn.Write([]byte(fmt.Sprintf("ERR invalid resource score: %s\n", err.Error())))
+		return
+	}
 	newNodeAddr := net.JoinHostPort(ip, newServerPort)
 
-	newNode := config.Node{ServerID: newServerID, Addr: newNodeAddr}
+	newNode := config.Node{ServerID: newServerID, Addr: newNodeAddr, ResourceScore: resourceScore, Group: group}
 
 	modifiedRangeIdx, startRangeForNewNode, endRangeForNewNode, newReplicaList, modifiedServerReplicaList := s.DetermineRange()
 
@@ -81,9 +90,10 @@ func HandleJoin(conn net.Conn, parts []string, s *config.Server, db *engine.Engi
 	log.Printf("Cluster metadata updated. New version: %d, Nodes: %d, Slot Ranges: %d",
 		s.GetClusterVersion(), s.GetNodeCount(), s.GetSlotRangeCount())
 
-	err = sendClusterMetadata(conn, s)
-	if err != nil {
-		log.Println("Error sending cluster metadata:", err)
+	if err := sendClusterMetadata(conn, s); err != nil {
+		log.Printf("[ERROR] sendClusterMetadata failed: %v", err)
+		_, _ = conn.Write([]byte("ERR failed to send cluster metadata\n"))
+		return
 	}
 
 	err = sendJoinSuccess(conn, newServerID, int(startRangeForNewNode), int(endRangeForNewNode), int(s.GetClusterVersion()))
@@ -123,47 +133,32 @@ func sendReJoinSuccess(s *config.Server, conn net.Conn, ServerID string, ranges 
 }
 
 func sendClusterMetadata(conn net.Conn, s *config.Server) error {
-	// Start of metadata transmission
-	_, err := conn.Write([]byte("CLUSTER_METADATA_BEGIN\n"))
-	if err != nil {
-		return fmt.Errorf("failed to write cluster metadata start: %w", err)
+	snap := s.BuildClusterSnapshot()
+
+	var buf bytes.Buffer
+	if err := gob.NewEncoder(&buf).Encode(&snap); err != nil {
+		return fmt.Errorf("sendClusterMetadata: gob encode snapshot: %w", err)
 	}
-	meta := s.GetServerMetadata()
-	for _, slot := range meta {
-		var nodeInfos []string
 
-		if len(slot.Nodes) > 0 {
-			for _, node := range slot.Nodes {
-				n, _ := s.GetConnectedNodeData(node)
-				nodeInfo := fmt.Sprintf("%s@%s", n.ServerID, n.Addr)
-				nodeInfos = append(nodeInfos, nodeInfo)
-			}
-		} else {
-			nodeInfos = append(nodeInfos, "NONE")
-		}
+	payload := buf.Bytes()
 
-		// Build master node info
-		Mn, ok := s.GetConnectedNodeData(slot.MasterID)
-		if !ok {
-			return fmt.Errorf("failed to write slot info: %s", ok)
-		}
-		masterNode := slot.MasterID + "@" + Mn.Addr
-
-		// Format: SLOT <Start> <End> <MasterNodeID> <Node1@Addr1>,<Node2@Addr2>,...
-		msg := fmt.Sprintf("SLOT %d %d %s %s\n", slot.Start, slot.End, masterNode, strings.Join(nodeInfos, ","))
-
-		fmt.Printf("Cluster Message: %s\n", msg)
-
-		_, err = conn.Write([]byte(msg))
-		if err != nil {
-			return fmt.Errorf("failed to write slot info: %w", err)
-		}
-
+	// Header tells the client exactly how many bytes to read for the gob payload.
+	if _, err := conn.Write([]byte(fmt.Sprintf("CLUSTER_SNAPSHOT %d\n", len(payload)))); err != nil {
+		return fmt.Errorf("sendClusterMetadata: write header: %w", err)
 	}
-	_, err = conn.Write([]byte("CLUSTER_METADATA_END\n"))
-	if err != nil {
-		return fmt.Errorf("failed to write cluster metadata start: %w", err)
+
+	if _, err := conn.Write(payload); err != nil {
+		return fmt.Errorf("sendClusterMetadata: write payload: %w", err)
 	}
 
 	return nil
+}
+
+func parseResourceScore(scoreStr string) (float64, error) {
+	var score float64
+	_, err := fmt.Sscanf(scoreStr, "%f", &score)
+	if err != nil {
+		return 0, fmt.Errorf("invalid resource score format: %w", err)
+	}
+	return score, nil
 }

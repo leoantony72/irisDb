@@ -3,7 +3,9 @@ package config
 import (
 	"encoding/gob"
 	"fmt"
+	"log"
 	"net"
+	"time"
 )
 
 type ClusterSnapshot struct {
@@ -13,6 +15,8 @@ type ClusterSnapshot struct {
 
 	Nodes    []Node      // value copies of nodes
 	Metadata []SlotRange // value copies of slot ranges
+
+	MasterNodeID string
 }
 
 func (s *Server) BuildClusterSnapshot() ClusterSnapshot {
@@ -32,13 +36,14 @@ func (s *Server) BuildClusterSnapshot() ClusterSnapshot {
 		TotalSlots:     totalSlots,
 		Nodes:          nodes,
 		Metadata:       metadata,
+		MasterNodeID:   s.MasterNodeID,
 	}
 }
 
 func (s *Server) ApplyClusterSnapshot(snapshot ClusterSnapshot) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-
+	oldMaster := s.MasterNodeID
 	newNodes := make(map[string]*Node, len(snapshot.Nodes))
 	for i := range snapshot.Nodes {
 		n := snapshot.Nodes[i]
@@ -58,6 +63,12 @@ func (s *Server) ApplyClusterSnapshot(snapshot ClusterSnapshot) {
 	s.Nnode = snapshot.TotalNodes
 	s.N = snapshot.TotalSlots
 	s.Cluster_Version = snapshot.ClusterVersion
+	s.MasterNodeID = snapshot.MasterNodeID
+
+	if oldMaster != snapshot.MasterNodeID {
+		log.Printf("[INFO]: Master changed from %s to %s (version %d). Clearing suspect messages.\n", oldMaster, snapshot.MasterNodeID, snapshot.ClusterVersion)
+		s.SuspectLeaderMsg = make(map[string]time.Time)
+	}
 }
 
 func (s *Server) SendClusterSnapshot(conn net.Conn) error {

@@ -9,14 +9,10 @@ import (
 )
 
 func HandleShow(conn net.Conn, s *config.Server) {
-	log.Printf("HandleShow called")
 	serverID, host, addr, busPort, version, totalNodes, totalSlots :=
 		s.GetBasicInfo()
-	log.Printf("Got basic info")
 	nodes := s.GetNodesSnapshot()
-	log.Printf("Got nodes snapshot")
 	slots := s.GetServerMetadata()
-	log.Printf("Got server metadata")
 
 	// build a local lookup from ID → Node
 	nodeMap := make(map[string]config.Node, len(nodes))
@@ -24,24 +20,32 @@ func HandleShow(conn net.Conn, s *config.Server) {
 		nodeMap[n.ServerID] = n
 	}
 
-	// Build response string instead of writing multiple times
+	// Current server score (prefer node snapshot; fallback 0)
+	selfScore := 0.0
+	if self, ok := nodeMap[serverID]; ok {
+		selfScore = self.ResourceScore
+	}
+
 	var response strings.Builder
 	response.WriteString("---------------\n")
 
 	// Basic server info
 	response.WriteString(fmt.Sprintf(
-		"Server ID: %s | Host: %s | Addr: %s | BusPort: %s\n",
-		serverID, host, addr, busPort,
+		"Server ID: %s | Host: %s | Addr: %s | BusPort: %s | MasterNodeID: %s | ResourceScore: %.6f\n",
+		serverID, host, addr, busPort, s.MasterNodeID, selfScore,
 	))
 	response.WriteString(fmt.Sprintf(
 		"Cluster Version: %d | Total Nodes: %d | Total Slots: %d\n",
 		version, totalNodes, totalSlots,
 	))
 
-	// List all nodes in the cluster
+	// List all nodes in the cluster (with ResourceScore)
 	response.WriteString("--- Nodes in Cluster ---\n")
 	for _, node := range nodes {
-		response.WriteString(fmt.Sprintf("  ServerID: %s | Addr: %s\n", node.ServerID, node.Addr))
+		response.WriteString(fmt.Sprintf(
+			"  ServerID: %s | Addr: %s | ResourceScore: %.6f\n",
+			node.ServerID, node.Addr, node.ResourceScore,
+		))
 	}
 
 	// Slot range info
@@ -82,10 +86,7 @@ func HandleShow(conn net.Conn, s *config.Server) {
 	}
 
 	response.WriteString("---------------\n")
-	log.Printf("About to write response, length: %d", len(response.String()))
-	_, err := conn.Write([]byte(response.String()))
-	if err != nil {
+	if _, err := conn.Write([]byte(response.String())); err != nil {
 		log.Printf("Error writing response: %v", err)
 	}
-	log.Printf("HandleShow completed")
 }

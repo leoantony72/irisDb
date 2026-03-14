@@ -22,8 +22,10 @@ func (s *Server) ApplyCommitByID(messageID string) error {
 	// Ensure the target node exists in the cluster node map.
 	if _, ok := s.Nodes[preparedMsg.TargetNodeID]; !ok {
 		s.Nodes[preparedMsg.TargetNodeID] = &Node{
-			ServerID: preparedMsg.TargetNodeID,
-			Addr:     preparedMsg.Addr,
+			ServerID:      preparedMsg.TargetNodeID,
+			Addr:          preparedMsg.Addr,
+			ResourceScore: preparedMsg.ResourceScore,
+			Group:         preparedMsg.Group,
 		}
 		s.Nnode++
 		log.Printf("New node %s added to the cluster.", preparedMsg.TargetNodeID)
@@ -49,7 +51,6 @@ func (s *Server) ApplyCommitByID(messageID string) error {
 	// Shrink the existing range.
 	s.Metadata[modifiedRangeIdx].End = preparedMsg.Start - 1
 	s.Metadata[modifiedRangeIdx].Nodes = preparedMsg.ModifiedNodeReplicaList
-
 	// Create the new slot range for the joining node.
 	newJoinNodeRange := &SlotRange{
 		Start:    preparedMsg.Start,

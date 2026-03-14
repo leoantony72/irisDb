@@ -2,6 +2,8 @@ package main
 
 import (
 	"bufio"
+	"bytes"
+	"encoding/gob"
 	"flag"
 	"fmt"
 	"io"
@@ -19,7 +21,7 @@ import (
 )
 
 const (
-	MASTER_FAIL_THRESHOLD = 3
+	MASTER_FAIL_THRESHOLD = 1
 )
 
 func main() {
@@ -102,12 +104,19 @@ func main() {
 	go func() {
 		for {
 			time.Sleep(15 * time.Second)
-			masterNode, ok := server.GetMasterNodeForRangeIdx(0)
-			if !ok {
-				return
+			masterNodeID := server.MasterNodeID
+			if masterNodeID == server.ServerID {
+				continue
 			}
-			if masterNode.ServerID == server.ServerID {
-				return
+			masterNode, ok := server.GetConnectedNodeData(masterNodeID)
+			if !ok {
+				log.Printf("[WARNING]: Master node data not found for ID %s\n", masterNodeID)
+				server.IncrMasterFailedAttempts()
+				if server.GetrMasterFailedAttempts() >= MASTER_FAIL_THRESHOLD {
+					log.Printf("[ERROR]: Master node unreachable for %d attempts. Initiating failover...\n", MASTER_FAIL_THRESHOLD)
+					server.InitiateMasterFailover()
+				}
+				continue
 			}
 			addr := masterNode.Addr
 			busAddr, _ := utils.BumpPort(addr, 10000)
@@ -130,26 +139,37 @@ func main() {
 			unreachable_ids := server.UnreacableNodeList()
 			server_group := server.GetServerGroup()
 			version := server.GetClusterVersion()
-			msg := fmt.Sprintf("HEARTBEAT %s %s %s %d\n", server.ServerID, server_group, unreachable_ids, version)
+			if unreachable_ids == "" {
+				unreachable_ids = "NONE"
+			}
+			fmt.Printf("🍕🍕ServerGroup:%s\n", server_group)
+			msg := fmt.Sprintf("HEARTBEAT %s %s %s %d\n", server.ServerID, unreachable_ids, server_group, version)
 
 			_, err = conn.Write([]byte(msg))
 			if err != nil {
 				log.Printf("[WARNING]: Failed to send HEARTBEAT to master: %v\n", err)
+				continue // ✅ Good - continues loop instead of exiting
 			}
 
 			response, err := bufio.NewReader(conn).ReadString('\n')
+			if err != nil {
+				log.Printf("[WARNING]: Failed to read HEARTBEAT response: %v\n", err)
+				continue
+			}
 			switch response {
 			case "OK\n":
-				return
+				continue
 
 			case "VERSION_MISMATCH\n":
 				log.Println("[WARNING] VERSION MISMATCH FOUND")
 				// stop all the operations until metadata is updated
-				return
+				server.GlobalPause.Store(true)
+				server.RequestMetadataSnapShot()
+				continue
 
 			case "ERROR\n":
 				log.Println("[WARNING] Heartbeat ERROR from Master server")
-				return
+				continue
 
 			default:
 				log.Printf("[WARNING] Unknown Response %s\n", response)
@@ -249,38 +269,48 @@ func joinCluster(addr string, server *config.Server, db *engine.Engine) error {
 	}
 	defer conn.Close()
 
-	joinMsg := fmt.Sprintf("JOIN %s %s\n", server.ServerID, server.Port)
-	_, err = conn.Write([]byte(joinMsg))
-	if err != nil {
+	joinMsg := fmt.Sprintf("JOIN %s %s %f %s\n", server.ServerID, server.Port, server.ResourceScore, server.GetServerGroup())
+	if _, err = conn.Write([]byte(joinMsg)); err != nil {
 		return fmt.Errorf("failed to send JOIN message: %w", err)
 	}
 	log.Printf("Sent JOIN message: %s", strings.TrimSpace(joinMsg))
 
 	reader := bufio.NewReader(conn)
 
-	// 1. Handle CLUSTER_METADATA_BEGIN block first
-	line, err := reader.ReadString('\n')
+	// 1) Read framed snapshot:
+	//    CLUSTER_SNAPSHOT <nbytes>\n
+	//    <nbytes gob(config.ClusterSnapshot)>
+	header, err := reader.ReadString('\n')
 	if err != nil {
-		return fmt.Errorf("failed to read first response line: %w", err)
+		return fmt.Errorf("failed to read snapshot header: %w", err)
 	}
-	line = strings.TrimSpace(line)
+	header = strings.TrimSpace(header)
 
-	if line != "CLUSTER_METADATA_BEGIN" {
-		// Log the unexpected response for debugging
-		log.Printf("Error: Expected CLUSTER_METADATA_BEGIN, got: %s", line)
-		return fmt.Errorf("expected CLUSTER_METADATA_BEGIN, got: %s", line)
+	hparts := strings.Fields(header)
+	if len(hparts) != 2 || hparts[0] != "CLUSTER_SNAPSHOT" {
+		return fmt.Errorf("expected CLUSTER_SNAPSHOT header, got: %q", header)
 	}
-	log.Println("Received CLUSTER_METADATA_BEGIN.")
 
-	// Parse metadata block using the bus package's handler
-	// This will update server.Metadata and server.Nodes based on the received information
-	err = bus.HandleIncomingClusterMetadata(reader, server)
-	if err != nil {
-		return fmt.Errorf("failed to parse cluster metadata: %v", err)
+	nbytes, err := strconv.Atoi(hparts[1])
+	if err != nil || nbytes <= 0 {
+		return fmt.Errorf("invalid CLUSTER_SNAPSHOT length: %q", hparts[1])
 	}
-	log.Printf("Successfully parsed incoming cluster metadata. Current metadata version: %d", server.Cluster_Version)
 
-	// 2. Handle JOIN_SUCCESS message after metadata
+	payload := make([]byte, nbytes)
+	if _, err := io.ReadFull(reader, payload); err != nil {
+		return fmt.Errorf("failed to read snapshot payload (%d bytes): %w", nbytes, err)
+	}
+
+	var snap config.ClusterSnapshot
+	if err := gob.NewDecoder(bytes.NewReader(payload)).Decode(&snap); err != nil {
+		return fmt.Errorf("failed to decode snapshot payload: %w", err)
+	}
+
+	fmt.Println(snap)
+	server.ApplyClusterSnapshot(snap)
+	log.Printf("✅ Applied snapshot. Current metadata version: %d", server.Cluster_Version)
+
+	// 2) Read JOIN_SUCCESS / REJOIN_SUCCESS line (text) AFTER snapshot
 	responseLine, err := reader.ReadString('\n')
 	if err != nil {
 		return fmt.Errorf("failed to read JOIN_SUCCESS response: %w", err)
@@ -289,17 +319,19 @@ func joinCluster(addr string, server *config.Server, db *engine.Engine) error {
 	responseLine = strings.TrimSpace(responseLine)
 	parts := strings.Fields(responseLine)
 
-	//Expected:JOIN_SUCCESS <start_slot> <end_slot> cluster_version
-	//or
-	//Expected: REJOIN_SUCCESS count <start_slot> <end_slot> ... cluster_version
-	if parts[0] == "JOIN_SUCCESS" || parts[0] == "REJOIN_SUCCESS" {
-		// ✅ Valid success
-	} else {
+	// Expected:
+	//   JOIN_SUCCESS <start_slot> <end_slot> <cluster_version>
+	// or:
+	//   REJOIN_SUCCESS <count> <start_slot> <end_slot> ... <cluster_version>
+	if len(parts) == 0 || (parts[0] != "JOIN_SUCCESS" && parts[0] != "REJOIN_SUCCESS") {
 		log.Printf("Error: Unexpected JOIN response format: %q", responseLine)
 		return fmt.Errorf("unexpected JOIN response: %s", responseLine)
 	}
 
 	if parts[0] == "JOIN_SUCCESS" {
+		if len(parts) < 4 {
+			return fmt.Errorf("invalid JOIN_SUCCESS response: %q", responseLine)
+		}
 
 		assignedStart, err := utils.ParseUint16(parts[1])
 		if err != nil {
@@ -315,37 +347,49 @@ func joinCluster(addr string, server *config.Server, db *engine.Engine) error {
 			return fmt.Errorf("invalid cluster version in JOIN_SUCCESS: %w", err)
 		}
 		server.UpdateClusterVersion(uint64(clusterVersion))
-		server.MasterNodeID, _ = server.GetServerIDFromAddr(addr)
-		log.Printf("✅ Successfully joined cluster via %s. This server (%s) is responsible for SlotRange [%d - %d].", addr, server.ServerID, assignedStart, assignedEnd)
-	} else {
 
+		masterNodeID, ok := server.GetServerIDFromAddr(addr)
+		if !ok {
+			log.Printf("[WARN] Could not determine MasterNodeID from addr %s", addr)
+		}
+		server.UpdateMasterNodeID(masterNodeID)
+
+		log.Printf("✅ Successfully joined cluster via %s. This server (%s) is responsible for SlotRange [%d - %d].",
+			addr, server.ServerID, assignedStart, assignedEnd)
+
+	} else { // REJOIN_SUCCESS
 		if len(parts) < 4 {
-			log.Printf("Error: Unexpected REJOIN response format: %q", responseLine)
-			return fmt.Errorf("unexpected REJOIN response: %s", responseLine)
+			return fmt.Errorf("invalid REJOIN_SUCCESS response: %q", responseLine)
 		}
 
-		count, _ := strconv.Atoi(parts[0])
+		// NOTE: original code used parts[0] as count; keep consistent with your sender.
+		count, err := strconv.Atoi(parts[1])
+		if err != nil || count < 0 {
+			return fmt.Errorf("invalid count in REJOIN_SUCCESS: %q", parts[1])
+		}
+
+		// parts layout assumed:
+		// REJOIN_SUCCESS <count> <start1> <end1> ... <cluster_version>
 		var b strings.Builder
 		for i := 0; i < count; i++ {
 			start, _ := strconv.Atoi(parts[2+2*i])
 			end, _ := strconv.Atoi(parts[3+2*i])
-
 			fmt.Fprintf(&b, " [%d-%d]", start, end)
 		}
+
 		clusterVersion, err := utils.ParseUint16(parts[2+2*count])
 		if err != nil {
 			return fmt.Errorf("invalid cluster version in REJOIN_SUCCESS: %w", err)
 		}
 		server.UpdateClusterVersion(uint64(clusterVersion))
 
-		log.Printf("✅ Successfully joined cluster via %s. This server (%s) is responsible for SlotRange %s", addr, server.ServerID, b.String())
-
+		log.Printf("✅ Successfully rejoined cluster via %s. This server (%s) is responsible for SlotRange %s",
+			addr, server.ServerID, b.String())
 	}
 
-	// ✅ Save configuration to database after successful cluster join
+	// Save configuration to database after successful cluster join
 	if err := db.SaveServerMetadata(server); err != nil {
 		log.Printf("[WARN] Failed to save server config to database after cluster join: %v", err)
 	}
-
 	return nil
 }

@@ -3,20 +3,19 @@ package bus
 import (
 	"iris/config"
 	"iris/engine"
-	"log"
 	"net"
 	"strings"
 )
 
 func HandleClusterCommand(cmd string, conn net.Conn, s *config.Server, db *engine.Engine) {
-	log.Printf("HandleClusterCommand received: %s", cmd)
+	// log.Printf("HandleClusterCommand received: %s", cmd)
 	parts := strings.Fields(cmd)
 	if len(parts) == 0 {
 		conn.Write([]byte("ERR empty command\n"))
 		return
 	}
 
-	log.Printf("Routing command: %s", strings.ToUpper(parts[0]))
+	// log.Printf("Routing command: %s", strings.ToUpper(parts[0]))
 
 	switch strings.ToUpper(parts[0]) {
 	case "JOIN":
@@ -77,6 +76,13 @@ func HandleClusterCommand(cmd string, conn net.Conn, s *config.Server, db *engin
 			HandleSuspectLeader(conn, parts, s)
 		}
 
+	case "REQ_METADATA":
+		{
+			HandleReqMetadata(conn, parts, s)
+		}
+	case "REQ_VOTE":{
+			HandleReqVote(conn, parts, s)
+	}
 	default:
 		conn.Write([]byte("ERR unknown command\n"))
 	}
