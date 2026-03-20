@@ -13,9 +13,15 @@ type Engine struct {
 	Db *pebble.DB
 }
 
-func NewEngine() (*Engine, error) {
+func NewEngine(path string) (*Engine, error) {
 	maxRetries := 5
 	basePath := "irisdb"
+	if path != "" {
+		db, err := OpenRocksDB(path)
+		if err == nil {
+			return &Engine{Db: db}, nil
+		}
+	}
 
 	var db *pebble.DB
 	var err error
@@ -26,31 +32,37 @@ func NewEngine() (*Engine, error) {
 			dbPath = fmt.Sprintf("%s_%d", basePath, i)
 		}
 
-		db, err = pebble.Open(dbPath, &pebble.Options{})
+		db, err = OpenRocksDB(dbPath)
 		if err == nil {
-			log.Printf("✅ Using Pebble DB at path: %s\n", dbPath)
 			return &Engine{Db: db}, nil
 		}
-
-		errMsg := strings.ToLower(err.Error())
-
-		// WINDOWS + LINUX + MAC FILE LOCK DETECTION
-		if strings.Contains(errMsg, "lock") ||
-			strings.Contains(errMsg, "resource temporarily unavailable") ||
-			strings.Contains(errMsg, "being used by another process") ||
-			strings.Contains(errMsg, "used by another process") ||
-			strings.Contains(errMsg, "cannot access the file") {
-
-			log.Printf("⚠️ DB at %s is locked, trying next...\n", dbPath)
-			continue
-		}
-
-		// ❌ Any other error is real → exit immediately
-		log.Printf("❌ Failed to open Pebble DB at %s: %v", dbPath, err)
-		return nil, err
 	}
 
 	return nil, fmt.Errorf("❌ All fallback Pebble DB paths are locked or failed")
+}
+
+func OpenRocksDB(path string) (*pebble.DB, error) {
+	db, err := pebble.Open(path, &pebble.Options{})
+	if err == nil {
+		log.Printf("Using Pebble DB at path: %s\n", path)
+		return db, nil
+	}
+
+	errMsg := strings.ToLower(err.Error())
+
+	// WINDOWS + LINUX + MAC FILE LOCK DETECTION
+	if strings.Contains(errMsg, "lock") ||
+		strings.Contains(errMsg, "resource temporarily unavailable") ||
+		strings.Contains(errMsg, "being used by another process") ||
+		strings.Contains(errMsg, "used by another process") ||
+		strings.Contains(errMsg, "cannot access the file") {
+
+		log.Printf("⚠️ DB at %s is locked, trying next...\n", path)
+		return nil, errors.New("database is locked")
+	}
+
+	log.Printf("❌ Failed to open Pebble DB at %s: %v", path, err)
+	return nil, err
 }
 
 func (e *Engine) Close() {

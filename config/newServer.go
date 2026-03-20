@@ -16,7 +16,9 @@ import (
 	"github.com/shirou/gopsutil/v4/mem"
 )
 
-func NewServer(group_name *string) *Server {
+func NewServer(config *utils.Config, group_name *string) *Server {
+	var configProvided bool = config != nil
+
 	name := uuid.New().String()
 	ip, err := utils.GetLocalIp()
 	if err != nil {
@@ -78,11 +80,28 @@ func NewServer(group_name *string) *Server {
 	}
 
 	// node.Nodes = append(node.Nodes, &Node{ServerID: name, Addr: addr})
+	if configProvided {
+		if config.Port != 0 {
+			p := strconv.Itoa(config.Port)
+			server.Port = p
+			server.BusPort = strconv.Itoa(config.Port + 10000)
+			server.Addr = net.JoinHostPort(ip, p)
+		}
+		server.ReplicationFactor = config.ReplicationFactor
+		server.Nodes[name] = &Node{ServerID: name, Addr: addr, Status: ALIVE, Group: config.NodeGroup}
+		server.Group = make(map[string]*GroupInfo)
+		server.Group[config.NodeGroup] = &GroupInfo{Name: config.NodeGroup, Nodes: []string{name}, Status: HEALTHY}
+
+	} else {
+
+		server.Nodes[name] = &Node{ServerID: name, Addr: addr, Status: ALIVE, Group: group}
+		server.Group = make(map[string]*GroupInfo)
+		server.Group[group] = &GroupInfo{Name: group, Nodes: []string{name}, Status: HEALTHY}
+	}
 	fmt.Printf("🌮🌮🥪🥪: serverid:%s\n", group)
-	server.Nodes[name] = &Node{ServerID: name, Addr: addr, Status: ALIVE, Group: group}
+
 	server.Nnode = 1
-	server.Group = make(map[string]*GroupInfo)
-	server.Group[group] = &GroupInfo{Name: group, Nodes: []string{name}, Status: HEALTHY}
+
 	server.MasterNodeID = name
 
 	server.Votes = make(map[string]bool)
@@ -96,8 +115,7 @@ func NewServer(group_name *string) *Server {
 	server.ResourceScore = server.DetermineResourceScore(".")
 	server.Nodes[name].ResourceScore = server.ResourceScore
 
-	log.Printf("🚀Server started on %s (bus: %s)", selectedPort, selectedBusPort)
-
+	log.Printf("🚀Server started on %s (bus: %s)", server.Port, server.BusPort)
 	return &server
 }
 

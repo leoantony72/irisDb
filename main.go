@@ -27,9 +27,21 @@ const (
 func main() {
 	clusterAddr := flag.String("cluster_server", "", "Address of a server in the cluster to join (optional)")
 	node_group := flag.String("node_group", "", " Group of the node, eg: asia-ind, eu-west, us-east")
+	config_file := flag.String("config_file", "", "Path to server config file(optional)")
 	flag.Parse()
 
-	IrisDb, err := engine.NewEngine()
+	var configData *utils.Config
+	if *config_file != "" {
+		configData = utils.ReadConfigFile(config_file)
+		if configData == nil {
+			log.Printf("[WARN] Failed to read config file at %s, using defaults\n", *config_file)
+			configData = &utils.Config{}
+		}
+	} else {
+		configData = &utils.Config{}
+	}
+
+	IrisDb, err := engine.NewEngine(configData.RocksDBPath)
 	if err != nil {
 		log.Fatalf("Failed to init Pebble DB: %v", err)
 	}
@@ -38,10 +50,10 @@ func main() {
 	loaded_data, err := CheckAndLoadMetadata(IrisDb)
 	if err == nil {
 		server = loaded_data
-		log.Printf("[✅] Loaded server config from database. ServerID: %s", server.ServerID)
+		log.Printf("[INFO] Loaded server config from database. ServerID: %s\n", server.ServerID)
 	} else {
-		server = config.NewServer(node_group)
-		log.Printf("[✅] Created new server config. ServerID: %s", server.ServerID)
+		server = config.NewServer(configData, node_group)
+		log.Printf("[INFO] Created new server config. ServerID: %s\n", server.ServerID)
 	}
 
 	// IMPORTANT: Always refresh the Host field with current machine IP
@@ -72,12 +84,18 @@ func main() {
 
 	go bus.NewBusRoute(server, IrisDb)
 
-	if *clusterAddr != "" {
-		err := joinCluster(*clusterAddr, server, IrisDb)
+	// Determine cluster address: flag takes precedence, then config file
+	clusterAddrToUse := *clusterAddr
+	if clusterAddrToUse == "" && configData != nil && configData.ClusterAddr != "" {
+		clusterAddrToUse = configData.ClusterAddr
+	}
+
+	if clusterAddrToUse != "" {
+		err := joinCluster(clusterAddrToUse, server, IrisDb)
 		if err != nil {
-			log.Printf("Warning: failed to join cluster at %s: %v", *clusterAddr, err)
+			log.Printf("[WARNING]: failed to join cluster at %s: %v\n", clusterAddrToUse, err)
 		} else {
-			log.Printf("[✅] Cluster join successful. Server configuration saved to database.")
+			log.Printf("[✅] Cluster join successful. Server configuration saved to database.\n")
 		}
 	}
 
@@ -132,7 +150,7 @@ func main() {
 				}
 				continue
 			}
-			
+
 			server.ResetMasterFailedAttempts()
 
 			//HEARTBEAT SID:<server_id> UNREACHABLE:<comma_separated_sids_or_empty> GROUP:<group> VERSION:<cluster_version>
@@ -149,7 +167,7 @@ func main() {
 			if err != nil {
 				log.Printf("[WARNING]: Failed to send HEARTBEAT to master: %v\n", err)
 				conn.Close()
-				continue 
+				continue
 			}
 
 			response, err := bufio.NewReader(conn).ReadString('\n')
