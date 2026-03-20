@@ -132,7 +132,7 @@ func main() {
 				}
 				continue
 			}
-			defer conn.Close()
+			
 			server.ResetMasterFailedAttempts()
 
 			//HEARTBEAT SID:<server_id> UNREACHABLE:<comma_separated_sids_or_empty> GROUP:<group> VERSION:<cluster_version>
@@ -148,14 +148,18 @@ func main() {
 			_, err = conn.Write([]byte(msg))
 			if err != nil {
 				log.Printf("[WARNING]: Failed to send HEARTBEAT to master: %v\n", err)
-				continue // ✅ Good - continues loop instead of exiting
+				conn.Close()
+				continue 
 			}
 
 			response, err := bufio.NewReader(conn).ReadString('\n')
 			if err != nil {
 				log.Printf("[WARNING]: Failed to read HEARTBEAT response: %v\n", err)
+				conn.Close()
 				continue
 			}
+
+			conn.Close()
 			switch response {
 			case "OK\n":
 				continue
