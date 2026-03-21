@@ -101,11 +101,12 @@ type Server struct {
 	Group           map[string]*GroupInfo //maps groups to node IDs
 	UnreahableNodes map[string]time.Time
 
-	MasterFailedAttempts int
-	SuspectLeaderMsg     map[string]time.Time
-	Votes                map[string]bool
-	Rt                   ResourceTracker
-	ResourceScore        float64
+	MasterFailedAttempts  int
+	SuspectLeaderMsg      map[string]time.Time
+	Votes                 map[string]bool
+	Rt                    ResourceTracker
+	ResourceScore         float64
+	MASTER_FAIL_THRESHOLD int
 }
 
 func (s *Server) GetClusterVersion() uint64 {
