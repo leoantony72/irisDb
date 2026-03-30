@@ -44,21 +44,43 @@ type Gossip struct {
 	table   GossipTable
 	mu      sync.RWMutex
 
+	/*
+		used to update the node states in the gossip protocol, when a nodes is marked as DEAD, the nodeID will
+		sent to this channel to update the GossipTable. The master node will be responsible for senting the dead nodeID to the busport of the current node.
+	*/
+	DeadEvents <- chan string
+
+	/*
+		used to update the node states in the gossipTable, when a new node joins the cluster, the nodeID will be sent to this channel. The master node will be responsible for senting the new nodeID to the busport of the current node.
+	*/
+	JoinEvents <- chan NodeState
+
+	/*
+		used to forward the incoming gossips(both inter and intra) received through the busport to the gossip protocol, the gossips will be processed and update the gossipTable accordingly.
+	*/
+	IntraGossips chan<- string
+	InterGossips chan<- string
+
 	onDead func(nodeID string, evidenceCount int)
 }
 
 func NewGossip(view ClusterView, onDead func(nodeID string, evidenceCount int)) *Gossip {
 	gossip := &Gossip{
-		localID: view.GetLocalNodeID(),
-		Group:   view.GetLocalGroup(),
-		view:    view,
-		table:   make(GossipTable),
-		onDead:  onDead,
+		localID:      view.GetLocalNodeID(),
+		Group:        view.GetLocalGroup(),
+		view:         view,
+		table:        make(GossipTable),
+		onDead:       onDead,
+		DeadEvents:   make(chan string, 10),
+		JoinEvents:   make(chan NodeState, 10),
+		IntraGossips: make(chan string, 10),
+		InterGossips: make(chan string, 10),
 	}
 	gossip.seedFromView()
 	return gossip
 }
 
+// will initialize the gossip table with the all the current nodes present in the servers current server config.
 func (g *Gossip) seedFromView() {
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -78,3 +100,36 @@ func (g *Gossip) seedFromView() {
 		}
 	}
 }
+
+func (g *Gossip) MonitorDeadNodes(){
+	for{
+		select{
+		case nodeID:= <- g.DeadEvents:
+			g.mu.Lock()
+			if NodeState, exists := g.table[nodeID];exists{
+				NodeState.Health = DEAD
+			}
+			g.mu.Unlock()
+		}
+	}
+}
+
+
+// @ Todo: eth markaruth !!!!!!!!!!!!
+// what happens when a nodeExit message send by the master fails to reach the node ? and in the gossip protocol we receive a message saying there is a newNode in the cluster?
+// HOW Will the node resolve this issue, will it req a snapshot from the master node, allengil accept the data from the gossip protocol and update the goosip table with it.
+// Also if the master sends the nodeExit, and the node pass it to the gossip protocol, it deletes node entry with NodeID, but if the node receives a gossip (before the sending node has the updated cluster state) in which the same nodeID is marked as alive, then the node will update the gossip table with the new state of the nodeID as alive and then the node that is dead will still be alive in the system as a zombies. myre .  ahh no we could use versions for this. fk
+
+
+/* 
+//send only 
+func(send chan<- string){
+	send <- "hi" 
+}
+
+//receive only
+func(t <- chan string){
+	msg := <-t
+} 
+
+*/
