@@ -1,8 +1,0 @@
-{
-    "replication_factor":1,
-    "port":8100,
-    "node_group":"asia-11",
-    "RocksDBPath":"/iris123",
-    "master_fail_threshold":1
-
-}

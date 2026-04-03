@@ -35,7 +35,7 @@ type ClusterView interface {
 	GetLocalGroup() string
 }
 
-type GossipTable map[string]NodeState
+type GossipTable map[string]*NodeState
 
 type Gossip struct {
 	localID string
@@ -58,8 +58,8 @@ type Gossip struct {
 	/*
 		used to forward the incoming gossips(both inter and intra) received through the busport to the gossip protocol, the gossips will be processed and update the gossipTable accordingly.
 	*/
-	IntraGossips chan<- string
-	InterGossips chan<- string
+	IntraGossips <- chan string
+	InterGossips <- chan string
 
 	onDead func(nodeID string, evidenceCount int)
 }
@@ -90,7 +90,7 @@ func (g *Gossip) seedFromView() {
 			if nodeID == g.localID {
 				continue
 			}
-			g.table[nodeID] = NodeState{
+			g.table[nodeID] = &NodeState{
 				NodeID:   nodeID,
 				Group:    group_name,
 				Health:   ALIVE,
@@ -101,14 +101,23 @@ func (g *Gossip) seedFromView() {
 	}
 }
 
-func (g *Gossip) MonitorDeadNodes(){
+/*
+	These messges are received by the BUSPORT, sent by the MasterNode to all the nodes in the cluster, when a node is marked as DEAD, and this function will update the gossip table with the new state of the nodeID and also incremnt the version of the nodeID in the gossip table.
+*/
+func (g *Gossip) MonitorChannel(){
 	for{
 		select{
 		case nodeID:= <- g.DeadEvents:
 			g.mu.Lock()
 			if NodeState, exists := g.table[nodeID];exists{
 				NodeState.Health = DEAD
+				NodeState.Version += 1
 			}
+			g.mu.Unlock()
+
+		case node := <-g.JoinEvents:
+			g.mu.Lock()
+			g.table[node.NodeID] = &node
 			g.mu.Unlock()
 		}
 	}
