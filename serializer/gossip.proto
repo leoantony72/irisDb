@@ -1,0 +1,36 @@
+syntax="proto3";
+
+package main;
+
+option go_package = "./pb";
+
+
+enum NodeHealth{
+	ALIVE = 0;
+	SUSPECT =1 ;
+	DEAD =2;
+}
+
+enum MessageType {
+	INTER_GOSSIP = 0;
+	INTRA_GOSSIP=1;
+}
+
+message NodeState {
+    string node_id = 1;
+    string group = 2;
+    NodeHealth health = 3;
+
+    // unix nano timestamp
+    int64 last_seen = 4;
+
+    int32 suspicion_count = 5;
+    uint64 version = 6;
+}
+message Gossip {
+  MessageType message_type = 1;
+  string sender_id =2;
+
+  repeated NodeState states = 3;
+
+}
