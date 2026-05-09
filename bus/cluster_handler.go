@@ -80,9 +80,14 @@ func HandleClusterCommand(cmd string, conn net.Conn, s *config.Server, db *engin
 		{
 			HandleReqMetadata(conn, parts, s)
 		}
-	case "REQ_VOTE":{
+	case "REQ_VOTE":
+		{
 			HandleReqVote(conn, parts, s)
-	}
+		}
+	case "GOSSIP":
+		{
+			HandleGossip(conn, parts, s)
+		}
 	default:
 		conn.Write([]byte("ERR unknown command\n"))
 	}

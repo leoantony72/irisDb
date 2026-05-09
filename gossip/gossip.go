@@ -29,11 +29,6 @@ type NodeState struct {
 	Version        uint64
 }
 
-type GossipMessage struct {
-	MessageType MessageType
-	
-}
-
 /*
 Provides an interface for the gossip protocol to interaact with the cluster metadata,
 Gossip protocol can only read the cluster state and node information through this interface, it cannot
