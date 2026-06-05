@@ -1,7 +1,6 @@
 package bus
 
 import (
-	"iris/config"
 	"log"
 	"net"
 	"strconv"
@@ -11,7 +10,7 @@ import (
 // HandleHeartbeat processes heartbeat messages from other cluster nodes.
 // expected command format is:
 // HEARTBEAT SID:<server_id> UNREACHABLE:<comma_separated_sids_or_empty> GROUP:<group> VERSION:<cluster_version>
-func HandleHeartbeat(conn net.Conn, cmd []string, s *config.Server) {
+func (b *Bus) HandleHeartbeat(conn net.Conn, cmd []string) {
 	if len(cmd) < 5 {
 		conn.Write([]byte("Expected Format : HEARTBEAT SID:<server_id> UNREACHABLE:<comma_separated_sids_or_empty> GROUP:<group> VERSION:<cluster_version>\n"))
 		log.Printf("[WARNING] 💖💖 %s \n", cmd)
@@ -23,7 +22,7 @@ func HandleHeartbeat(conn net.Conn, cmd []string, s *config.Server) {
 	group := cmd[3]
 	peer_version, _ := strconv.Atoi(cmd[4]) // don't forget to handle errr here
 
-	if uint64(peer_version) != s.GetClusterVersion() {
+	if uint64(peer_version) != b.server.GetClusterVersion() {
 		conn.Write([]byte("VERSION_MISMATCH\n"))
 		return
 	}
@@ -31,7 +30,7 @@ func HandleHeartbeat(conn net.Conn, cmd []string, s *config.Server) {
 	ok := true
 	if unreachable != "NONE" {
 		unreachableNodes := strings.Split(unreachable, ",")
-		ok = s.UpdateHeartbeat(serverid, unreachableNodes, group)
+		ok = b.server.UpdateHeartbeat(serverid, unreachableNodes, group)
 	}
 
 	if ok {

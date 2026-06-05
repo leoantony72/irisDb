@@ -27,7 +27,7 @@ message NodeState {
     int32 suspicion_count = 5;
     uint64 version = 6;
 }
-message Gossip {
+message GossipMessage {
   MessageType message_type = 1;
   string sender_id =2;
 

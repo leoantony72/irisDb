@@ -11,6 +11,7 @@ import (
 	"iris/bus"
 	"iris/config"
 	"iris/engine"
+	"iris/gossip"
 	"iris/utils"
 )
 
@@ -75,8 +76,10 @@ func main() {
 	log.Printf("📦Server ID:%s\n", server.ServerID)
 	log.Printf("🌐Host IP:%s | Addr:%s | Bus Port:%s\n", server.Host, server.Addr, server.BusPort)
 	log.Printf("📊Cluster Info - Version: %d, Nodes: %d, Slot Ranges: %d\n", server.Cluster_Version, server.Nnode, server.GetSlotRangeCount())
+	gossip := gossip.NewGossip(server)
 
-	go bus.NewBusRoute(server, IrisDb)
+	Bus := bus.NewBus(server, IrisDb, gossip)
+	go Bus.NewBusRoute()
 
 	// Determine cluster address: flag takes precedence, then config file
 	clusterAddrToUse := *clusterAddr

@@ -2,8 +2,6 @@ package bus
 
 import (
 	"fmt"
-	"iris/config"
-	"iris/engine"
 	"iris/utils"
 	"log"
 	"net"
@@ -13,7 +11,7 @@ import (
 
 // HandleCommit is the bus handler for a remote COMMIT request.
 // It only parses args, calls into config.Server, and writes a response.
-func HandleCommit(conn net.Conn, parts []string, s *config.Server) {
+func (b *Bus) HandleCommit(conn net.Conn, parts []string) {
 	if len(parts) != 2 {
 		_, _ = conn.Write([]byte("ERR: Not Enough Arguments\n"))
 		return
@@ -21,7 +19,7 @@ func HandleCommit(conn net.Conn, parts []string, s *config.Server) {
 
 	messageID := parts[1]
 
-	if err := s.ApplyCommitByID(messageID); err != nil {
+	if err := b.server.ApplyCommitByID(messageID); err != nil {
 		log.Printf("COMMIT failed for message ID %s: %v", messageID, err)
 		_, _ = conn.Write([]byte(fmt.Sprintf("ERR: COMMIT failed: %v\n", err)))
 		return
@@ -31,11 +29,11 @@ func HandleCommit(conn net.Conn, parts []string, s *config.Server) {
 }
 
 // / sends a COMMIT message to all other nodes in the cluster.
-func commit(mid string, s *config.Server, db *engine.Engine) (bool, error) {
+func (b *Bus) commit(mid string) (bool, error) {
 	msg := fmt.Sprintf("COMMIT %s\n", mid)
 
 	// Snapshot peers from config package
-	peers := s.GetCommitPeers()
+	peers := b.server.GetCommitPeers()
 
 	for _, peer := range peers {
 		busport, err := utils.BumpPort(peer.Addr, 10000)
@@ -73,13 +71,13 @@ func commit(mid string, s *config.Server, db *engine.Engine) (bool, error) {
 	}
 
 	// Apply commit changes locally on the coordinating server.
-	if err := s.ApplyCommitByID(mid); err != nil {
+	if err := b.server.ApplyCommitByID(mid); err != nil {
 		log.Printf("Local commit failed for MessageID %s: %s", mid, err.Error())
 		return false, fmt.Errorf("local commit failed: %s", err.Error())
 	}
 
 	log.Printf("Local commit for MessageID %s succeeded.", mid)
-	db.SaveServerMetadata(s)
+	b.db.SaveServerMetadata(b.server)
 
 	return true, nil
 }

@@ -2,8 +2,6 @@ package bus
 
 import (
 	"fmt"
-	"iris/config"
-	"iris/engine"
 	"iris/utils"
 	"log"
 	"net"
@@ -12,7 +10,7 @@ import (
 
 // CMU REP : ADD/REMOVE/UPDATE replica list of a range/server
 // CMU REP ADD SERVERID START END
-func HandleClusterMetdataUpdate(conn net.Conn, parts []string, s *config.Server, db *engine.Engine) {
+func (b *Bus) HandleClusterMetdataUpdate(conn net.Conn, parts []string) {
 	switch strings.ToUpper(parts[1]) {
 	case "REP":
 		{
@@ -34,24 +32,24 @@ func HandleClusterMetdataUpdate(conn net.Conn, parts []string, s *config.Server,
 			}
 
 			// check if the current server is master for the range
-			masterIdx := s.FindRangeIndex(start, end)
-			master, ok := s.GetSlotRangeByIndex(masterIdx)
+			masterIdx := b.server.FindRangeIndex(start, end)
+			master, ok := b.server.GetSlotRangeByIndex(masterIdx)
 			if !ok {
 				conn.Write([]byte("ERR: internal error\n"))
 				return
 			}
 
 			log.Printf("[🌹INFO] %s | %s", master.MasterID, serverID)
-			if master.MasterID == s.ServerID {
+			if master.MasterID == b.server.ServerID {
 				// this server is master for the range, send the data to the new replica
 				// initiate data transfer to the new replica
 
 				log.Println("[🌹INFO] this server is the master")
 				// @@disable writes for the range during transfer
-				go InitiateDataTransferToReplica(serverID, start, end, db, s)
+				go b.InitiateDataTransferToReplica(serverID, start, end)
 			}
 
-			if err := s.AddReplicaToRange(serverID, start, end); err != nil {
+			if err := b.server.AddReplicaToRange(serverID, start, end); err != nil {
 				conn.Write([]byte(fmt.Sprintf("ERR: %s\n", err.Error())))
 				return
 			}
@@ -67,7 +65,7 @@ func HandleClusterMetdataUpdate(conn net.Conn, parts []string, s *config.Server,
 			}
 
 			serverID := parts[3]
-			mapping, _ := s.RepairRangeOnMaster(serverID)
+			mapping, _ := b.server.RepairRangeOnMaster(serverID)
 
 			for key, replicas := range mapping {
 				// key is "start-end"
@@ -88,8 +86,8 @@ func HandleClusterMetdataUpdate(conn net.Conn, parts []string, s *config.Server,
 					continue
 				}
 
-				idx := s.FindRangeIndex(start, end)
-				r, ok := s.GetSlotRangeByIndex(idx)
+				idx := b.server.FindRangeIndex(start, end)
+				r, ok := b.server.GetSlotRangeByIndex(idx)
 				if !ok {
 					log.Printf("[WARN] no slot-range found for %d-%d (key=%s)", start, end, key)
 					continue
@@ -97,7 +95,7 @@ func HandleClusterMetdataUpdate(conn net.Conn, parts []string, s *config.Server,
 
 				log.Printf("[💖INFO] rangeMaster: %s | ServerID: %s")
 				// only the master for this range should initiate transfers
-				if r.MasterID != s.ServerID {
+				if r.MasterID != b.server.ServerID {
 					continue
 				}
 
@@ -105,11 +103,10 @@ func HandleClusterMetdataUpdate(conn net.Conn, parts []string, s *config.Server,
 
 				for _, replicaID := range replicas {
 					// replicate: master -> replicaID for this range
-					log.Printf("[INFO] master %s initiating transfer for range %d-%d -> %s", s.ServerID, start, end, replicaID)
-					go InitiateDataTransferToReplica(replicaID, start, end, db, s)
+					log.Printf("[INFO] master %s initiating transfer for range %d-%d -> %s", b.server.ServerID, start, end, replicaID)
+					go b.InitiateDataTransferToReplica(replicaID, start, end)
 				}
 			}
-
 		}
 	default:
 		{

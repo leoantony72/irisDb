@@ -3,17 +3,15 @@ package bus
 import (
 	"bufio"
 	"fmt"
-	"iris/config"
-	"iris/engine"
 	"iris/utils"
+	"log"
 	"net"
 	"strings"
 	"time"
-	"log"
 )
 
 // LEAVE SID
-func HandleLeave(conn net.Conn, parts []string, s *config.Server, db *engine.Engine) {
+func (b *Bus) HandleLeave(conn net.Conn, parts []string) {
 	if len(parts) != 2 {
 		// msg := fmt.Sprintf()
 		conn.Write([]byte("ERR INVALID FORMAT, EXPECTED FORMAT: LEAVE SID\n"))
@@ -23,13 +21,13 @@ func HandleLeave(conn net.Conn, parts []string, s *config.Server, db *engine.Eng
 
 	serverId := parts[1]
 
-	err := s.NodeExit(serverId)
+	err := b.server.NodeExit(serverId)
 	if err != nil {
 		conn.Write([]byte("SHUTDOWN FAILED\n"))
 		return
 	}
 
-	peers := s.GetCommitPeers()
+	peers := b.server.GetCommitPeers()
 	for _, p := range peers {
 		busAddr, _ := utils.BumpPort(p.Addr, 10000)
 		peerConn, err := net.DialTimeout("tcp", busAddr, 10*time.Second)
@@ -42,7 +40,7 @@ func HandleLeave(conn net.Conn, parts []string, s *config.Server, db *engine.Eng
 		peerConn.Write([]byte("SNAPSHOT \n"))
 		log.Printf("Sent SNAPSHOT command to peer %s", p.ServerID)
 
-		if err := s.SendClusterSnapshot(peerConn); err != nil {
+		if err := b.server.SendClusterSnapshot(peerConn); err != nil {
 			peerConn.Close()
 			continue
 		}
@@ -59,11 +57,11 @@ func HandleLeave(conn net.Conn, parts []string, s *config.Server, db *engine.Eng
 			peerConn.Close()
 			continue
 		}
-		
+
 		log.Printf("Successfully updated peer %s with new cluster snapshot", p.ServerID)
 		peerConn.Close()
 	}
-	
+
 	// Send success response to the client
 	conn.Write([]byte("SHUTDOWN SUCCESS\n"))
 }

@@ -1,13 +1,12 @@
 package bus
 
 import (
-	"iris/config"
 	"log"
 	"net"
 	"strconv"
 )
 
-func HandleSuspectLeader(conn net.Conn, parts []string, s *config.Server) {
+func (b *Bus) HandleSuspectLeader(conn net.Conn, parts []string) {
 	if len(parts) < 4 {
 		log.Printf("[ERROR]: Invalid SUSPECT_LEADER command, parts length: %d\n", len(parts))
 		conn.Write([]byte("ERR invalid SUSPECT_LEADER command\n"))
@@ -24,18 +23,18 @@ func HandleSuspectLeader(conn net.Conn, parts []string, s *config.Server) {
 	}
 
 	log.Printf("[INFO]: Received SUSPECT_LEADER from node %s for master %s (version %d) on server %s\n",
-		SenderNodeID, masterNodeID, clusterVersion, s.ServerID)
+		SenderNodeID, masterNodeID, clusterVersion, b.server.ServerID)
 
-	localMasterID := s.MasterNodeID
-	localVersion := s.GetClusterVersion()
+	localMasterID := b.server.MasterNodeID
+	localVersion := b.server.GetClusterVersion()
 	log.Printf("[DEBUG]: Comparing - local master: %s vs remote master: %s | local version: %d vs remote version: %d\n",
 		localMasterID, masterNodeID, localVersion, clusterVersion)
 
-	if s.MasterNodeID == masterNodeID && s.GetClusterVersion() == clusterVersion {
-		log.Printf("[INFO]: Initiating failover on server %s\n", s.ServerID)
-		s.AddSuspectLeaderMsg(SenderNodeID)
-		s.CheckMasterFailover()
+	if b.server.MasterNodeID == masterNodeID && b.server.GetClusterVersion() == clusterVersion {
+		log.Printf("[INFO]: Initiating failover on server %s\n", b.server.ServerID)
+		b.server.AddSuspectLeaderMsg(SenderNodeID)
+		b.server.CheckMasterFailover()
 	} else {
-		log.Printf("[INFO]: Ignoring SUSPECT_LEADER from node %s on server %s (master mismatch or version mismatch)\n", SenderNodeID, s.ServerID)
+		log.Printf("[INFO]: Ignoring SUSPECT_LEADER from node %s on server %s (master mismatch or version mismatch)\n", SenderNodeID, b.server.ServerID)
 	}
 }

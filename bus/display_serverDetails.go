@@ -8,11 +8,11 @@ import (
 	"strings"
 )
 
-func HandleShow(conn net.Conn, s *config.Server) {
+func(b *Bus) HandleShow(conn net.Conn) {
 	serverID, host, addr, busPort, version, totalNodes, totalSlots :=
-		s.GetBasicInfo()
-	nodes := s.GetNodesSnapshot()
-	slots := s.GetServerMetadata()
+		b.server.GetBasicInfo()
+	nodes := b.server.GetNodesSnapshot()
+	slots := b.server.GetServerMetadata()
 
 	// build a local lookup from ID → Node
 	nodeMap := make(map[string]config.Node, len(nodes))
@@ -32,7 +32,7 @@ func HandleShow(conn net.Conn, s *config.Server) {
 	// Basic server info
 	response.WriteString(fmt.Sprintf(
 		"Server ID: %s | Host: %s | Addr: %s | BusPort: %s | MasterNodeID: %s | ResourceScore: %.6f\n",
-		serverID, host, addr, busPort, s.MasterNodeID, selfScore,
+		serverID, host, addr, busPort, b.server.MasterNodeID, selfScore,
 	))
 	response.WriteString(fmt.Sprintf(
 		"Cluster Version: %d | Total Nodes: %d | Total Slots: %d\n",

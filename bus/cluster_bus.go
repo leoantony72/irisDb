@@ -5,28 +5,42 @@ import (
 	"io"
 	"iris/config"
 	"iris/engine"
+	"iris/gossip"
 	"log"
 	"net"
 	"strings"
 	"time"
 )
 
-func NewBusRoute(server *config.Server, db *engine.Engine) {
+type Bus struct {
+	server *config.Server
+	db     *engine.Engine
+	gossip *gossip.Gossip
+}
+
+func NewBus(server *config.Server, db *engine.Engine, gossip *gossip.Gossip) *Bus {
+	return &Bus{
+		server: server,
+		db:     db,
+		gossip: gossip,
+	}
+}
+
+func (b *Bus) NewBusRoute() {
 	// Force IPv4-only listening to avoid Windows dual-stack issues
 	// Use "tcp4" instead of "tcp" to prevent IPv6 dual-stack binding
-	lis, err := net.Listen("tcp4", ":"+server.BusPort)
+	lis, err := net.Listen("tcp4", ":"+b.server.BusPort)
 	if err != nil {
-		log.Fatalf("Coudn't start bus at port:%s, err: %s \n", server.BusPort, err.Error())
-		//exits
+		log.Fatalf("Coudn't start bus at port:%s, err: %s \n", b.server.BusPort, err.Error())
 	}
-	server.BusListener = lis
+	b.server.BusListener = lis
 
-	log.Printf("🚀Running BusPort at localhost:%s (IPv4 only)", server.BusPort)
+	log.Printf("🚀Running BusPort at localhost:%s (IPv4 only)", b.server.BusPort)
 
 	for {
 		conn, err := lis.Accept()
 		if err != nil {
-			if server.ShuttingDown.Load() {
+			if b.server.ShuttingDown.Load() {
 				log.Println("[INFO] Bus listener stopped (shutdown in progress)")
 				return
 			}
@@ -34,22 +48,21 @@ func NewBusRoute(server *config.Server, db *engine.Engine) {
 			continue
 		}
 
-		server.Wg.Add(1)
-		go handleConnection(conn, server, db)
+		b.server.Wg.Add(1)
+		go b.handleConnection(conn)
 	}
 }
 
-func handleConnection(conn net.Conn, server *config.Server, db *engine.Engine) {
+func (b *Bus) handleConnection(conn net.Conn) {
+	defer b.server.Wg.Done()
 	defer conn.Close()
 	reader := bufio.NewReader(conn)
 	for {
-		if server.ShuttingDown.Load() {
-			log.Println("[INFO] Bus connection closing due to server shutdown")
+		if b.server.ShuttingDown.Load() {
+			log.Println("[INFO] Bus connection closing due to b.server shutdown")
 			return
 		}
-		// Set read deadline to detect stalled connections
 		conn.SetReadDeadline(time.Now().Add(1 * time.Minute))
-
 		line, err := reader.ReadString('\n')
 		if err != nil {
 			if err != io.EOF {
@@ -67,10 +80,10 @@ func handleConnection(conn net.Conn, server *config.Server, db *engine.Engine) {
 			// Close the current connection and let the sender establish a new one for binary data
 			// Actually, SNAPSHOT data comes on the same connection right after this line
 			// We pass the reader to HandleClusterSnapshot so it can continue reading from the buffered stream
-			HandleClusterSnapshot(reader, conn, server)
+			b.HandleClusterSnapshot(reader, conn)
 			continue
 		}
 
-		HandleClusterCommand(trimmedCmd, conn, server, db)
+		b.HandleClusterCommand(trimmedCmd, conn)
 	}
 }

@@ -1,9 +1,9 @@
 package gossip
 
 import (
+	"iris/serializer/pb"
 	"sync"
 	"time"
-	"iris/serializer/pb"
 )
 
 type NodeHealth int
@@ -55,33 +55,31 @@ type Gossip struct {
 		used to update the node states in the gossip protocol, when a nodes is marked as DEAD, the nodeID will
 		sent to this channel to update the GossipTable. The master node will be responsible for senting the dead nodeID to the busport of the current node.
 	*/
-	DeadEvents <-chan string
+	DeadEvents chan string
 
 	/*
 		used to update the node states in the gossipTable, when a new node joins the cluster, the nodeID will be sent to this channel. The master node will be responsible for senting the new nodeID to the busport of the current node.
 	*/
-	JoinEvents <-chan NodeState
+	JoinEvents chan NodeState
 
 	/*
 		used to forward the incoming gossips(both inter and intra) received through the busport to the gossip protocol, the gossips will be processed and update the gossipTable accordingly.
 	*/
-	IntraGossips <-chan string
-	InterGossips <-chan string
-
-	onDead func(nodeID string, evidenceCount int)
+	IntraGossipsChan chan *pb.GossipMessage
+	InterGossipsChan chan *pb.GossipMessage
+	stop             chan struct{}
 }
 
-func NewGossip(view ClusterView, onDead func(nodeID string, evidenceCount int)) *Gossip {
+func NewGossip(view ClusterView) *Gossip {
 	gossip := &Gossip{
-		localID:      view.GetLocalNodeID(),
-		Group:        view.GetLocalGroup(),
-		view:         view,
-		table:        make(GossipTable),
-		onDead:       onDead,
-		DeadEvents:   make(chan string, 10),
-		JoinEvents:   make(chan NodeState, 10),
-		IntraGossips: make(chan string, 10),
-		InterGossips: make(chan string, 10),
+		localID:          view.GetLocalNodeID(),
+		Group:            view.GetLocalGroup(),
+		view:             view,
+		table:            make(GossipTable),
+		DeadEvents:       make(chan string, 10),
+		JoinEvents:       make(chan NodeState, 10),
+		IntraGossipsChan: make(chan *pb.GossipMessage, 10),
+		InterGossipsChan: make(chan *pb.GossipMessage, 10),
 	}
 
 	gossip.seedFromView()
@@ -95,9 +93,6 @@ func (g *Gossip) seedFromView() {
 
 	for _, group_name := range g.view.GetAllGroups() {
 		for _, nodeID := range g.view.GetGroupMembers(group_name) {
-			if nodeID == g.localID {
-				continue
-			}
 			g.table[nodeID] = &NodeState{
 				NodeID:   nodeID,
 				Group:    group_name,
@@ -115,21 +110,46 @@ These messges are received by the BUSPORT, sent by the MasterNode to all the nod
 func (g *Gossip) MonitorChannel() {
 	for {
 		select {
-		case nodeID := <-g.DeadEvents:
+		case nodeID, ok := <-g.DeadEvents:
+			if !ok {
+				return
+			}
 			g.mu.Lock()
-			if NodeState, exists := g.table[nodeID]; exists {
-				NodeState.Health = DEAD
-				NodeState.Version += 1
+			if state, exists := g.table[nodeID]; exists {
+				state.Health = DEAD
+				state.Version += 1
 			}
 			g.mu.Unlock()
 
-		case node := <-g.JoinEvents:
+		case node, ok := <-g.JoinEvents:
+			if !ok {
+				return
+			}
 			g.mu.Lock()
 			g.table[node.NodeID] = &node
 			g.mu.Unlock()
+
+		case msg, ok := <-g.InterGossipsChan:
+			if !ok {
+				return
+			}
+			g.handleGossipMessage(msg)
+
+		case msg, ok := <-g.IntraGossipsChan:
+			if !ok {
+				return
+			}
+			g.handleGossipMessage(msg)
+
+
+		case <-g.stop:
+			return
 		}
 	}
 }
+
+// func (g *Gossip) GetNodeFromTable(id string) *NodeState{
+// 
 
 // @ Todo: eth markaruth !!!!!!!!!!!!
 // what happens when a nodeExit message send by the master fails to reach the node ? and in the gossip protocol we receive a message saying there is a newNode in the cluster?

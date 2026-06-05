@@ -8,10 +8,10 @@ import (
 	"net"
 )
 
-func HandleClusterSnapshot(reader *bufio.Reader, conn net.Conn, s *config.Server) {
+func (b *Bus) HandleClusterSnapshot(reader *bufio.Reader, conn net.Conn) {
 	// The text "SNAPSHOT" command has already been read by the caller
 	// Now read the binary gob-encoded snapshot from the reader/connection
-	
+
 	dec := gob.NewDecoder(reader)
 
 	var snap config.ClusterSnapshot
@@ -22,7 +22,7 @@ func HandleClusterSnapshot(reader *bufio.Reader, conn net.Conn, s *config.Server
 	}
 
 	log.Printf("Received cluster snapshot, applying...")
-	s.ApplyClusterSnapshot(snap)
+	b.server.ApplyClusterSnapshot(snap)
 	conn.Write([]byte("SNAPSHOT_OK\n"))
 	log.Printf("Snapshot applied successfully")
 }

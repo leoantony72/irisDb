@@ -430,3 +430,36 @@ func (s *Server) quorumForFailoverLocked(failedMaster string) int {
 	}
 	return (total / 2) + 1
 }
+
+// GetGroupMembers(group string) []string
+// GetNodeAddr(nodeID string) (string, bool)
+// GetAllGroups() []string
+// GetLocalNodeID() string
+// GetLocalGroup() string
+
+func (s *Server) GetGroupMembers(group string) []string {
+
+	res := []string{}
+	return res
+}
+func (s *Server) GetNodeAddr(nodeID string) (string, bool) {
+
+	res := ""
+	return res, true
+}
+
+func (s *Server) GetAllGroups() []string {
+
+	res := []string{}
+	return res
+}
+func (s *Server) GetLocalNodeID() string {
+
+	res :=""
+	return res
+}
+func (s *Server) GetLocalGroup() string {
+
+	res :=""
+	return res
+}

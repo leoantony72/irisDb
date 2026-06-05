@@ -1,13 +1,11 @@
 package bus
 
 import (
-	"iris/config"
-	"iris/engine"
 	"net"
 	"strings"
 )
 
-func HandleClusterCommand(cmd string, conn net.Conn, s *config.Server, db *engine.Engine) {
+func (b *Bus) HandleClusterCommand(cmd string, conn net.Conn) {
 	// log.Printf("HandleClusterCommand received: %s", cmd)
 	parts := strings.Fields(cmd)
 	if len(parts) == 0 {
@@ -20,73 +18,73 @@ func HandleClusterCommand(cmd string, conn net.Conn, s *config.Server, db *engin
 	switch strings.ToUpper(parts[0]) {
 	case "JOIN":
 		{
-			HandleJoin(conn, parts, s, db)
-			db.SaveServerMetadata(s)
+			b.HandleJoin(conn, parts)
+			b.db.SaveServerMetadata(b.server)
 		}
 
 	case "PREPARE":
 		{
-			HandlePrepare(conn, parts, s)
-			db.SaveServerMetadata(s)
+			HandlePrepare(conn, parts, b.server)
+			b.db.SaveServerMetadata(b.server)
 		}
 	case "REP":
 		{
-			HandleReplication(conn, parts, s, db)
+			b.HandleReplication(conn, parts)
 		}
 
 	case "COMMIT":
 		{
-			HandleCommit(conn, parts, s)
-			db.SaveServerMetadata(s)
+			b.HandleCommit(conn, parts)
+			b.db.SaveServerMetadata(b.server)
 		}
 
 	case "SHOW":
 		{
-			HandleShow(conn, s)
+			b.HandleShow(conn)
 		}
 
 	case "CLUSTER_METADATA_BEGIN":
 		{
-			HandleMetadata(conn, s)
+			b.HandleMetadata(conn)
 		}
 
 	case "INS":
 		{
-			HandleINS(conn, parts, s, db)
+			b.HandleINS(conn, parts)
 		}
 
 	case "CMU":
 		{
-			HandleClusterMetdataUpdate(conn, parts, s, db)
-			db.SaveServerMetadata(s)
+			b.HandleClusterMetdataUpdate(conn, parts)
+			b.db.SaveServerMetadata(b.server)
 		}
 	case "LEAVE":
 		{
-			HandleLeave(conn, parts, s, db)
-			db.SaveServerMetadata(s)
+			b.HandleLeave(conn, parts)
+			b.db.SaveServerMetadata(b.server)
 		}
 
 	case "HEARTBEAT":
 		{
-			HandleHeartbeat(conn, parts, s)
+			b.HandleHeartbeat(conn, parts)
 		}
 
 	case "SUSPECT_LEADER":
 		{
-			HandleSuspectLeader(conn, parts, s)
+			b.HandleSuspectLeader(conn, parts)
 		}
 
 	case "REQ_METADATA":
 		{
-			HandleReqMetadata(conn, parts, s)
+			b.HandleReqMetadata(conn, parts)
 		}
 	case "REQ_VOTE":
 		{
-			HandleReqVote(conn, parts, s)
+			b.HandleReqVote(conn, parts)
 		}
 	case "GOSSIP":
 		{
-			HandleGossip(conn, parts, s)
+			b.HandleGossip(conn, parts)
 		}
 	default:
 		conn.Write([]byte("ERR unknown command\n"))

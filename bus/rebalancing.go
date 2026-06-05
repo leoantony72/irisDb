@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"fmt"
 	"iris/config"
-	"iris/engine"
 	"iris/utils"
 	"log"
 	"net"
@@ -13,18 +12,18 @@ import (
 	"github.com/cockroachdb/pebble"
 )
 
-func InitiateDataTransferToReplica(serverID string, start, end uint16, db *engine.Engine, s *config.Server) {
+func (b *Bus) InitiateDataTransferToReplica(serverID string, start, end uint16) {
 
-	// Implementation of data transfer initiation logic goes here.
+	// Implementation of data transfer initiation logic here.
 	// loop through every data in this node and hash it to see if it belongs to the range start-end
 	// If yes, send it to the serverID
 
-	if db == nil || db.Db == nil {
+	if b.db == nil || b.db.Db == nil {
 		log.Println("InitiateDataTransferToReplica: nil db provided")
 		return
 	}
 
-	iter, err := db.Db.NewIter(&pebble.IterOptions{})
+	iter, err := b.db.Db.NewIter(&pebble.IterOptions{})
 	if err != nil {
 		log.Printf("InitiateDataTransferToReplica: failed to create iterator: %s", err.Error())
 		return
@@ -35,9 +34,9 @@ func InitiateDataTransferToReplica(serverID string, start, end uint16, db *engin
 		key := append([]byte{}, iter.Key()...)
 		val := append([]byte{}, iter.Value()...)
 
-		slot := utils.CalculateCRC16(key) % s.N
+		slot := utils.CalculateCRC16(key) % b.server.N
 		if slotInRange(slot, start, end) {
-			if err := sendKeyValue(serverID, key, val, s); err != nil {
+			if err := sendKeyValue(serverID, key, val, b.server); err != nil {
 				log.Printf("failed to send key %q to %s: %v", key, serverID, err)
 			}
 		}

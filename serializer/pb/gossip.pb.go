@@ -201,7 +201,7 @@ func (x *NodeState) GetVersion() uint64 {
 	return 0
 }
 
-type Gossip struct {
+type GossipMessage struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	MessageType   MessageType            `protobuf:"varint,1,opt,name=message_type,json=messageType,proto3,enum=main.MessageType" json:"message_type,omitempty"`
 	SenderId      string                 `protobuf:"bytes,2,opt,name=sender_id,json=senderId,proto3" json:"sender_id,omitempty"`
@@ -210,20 +210,20 @@ type Gossip struct {
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *Gossip) Reset() {
-	*x = Gossip{}
+func (x *GossipMessage) Reset() {
+	*x = GossipMessage{}
 	mi := &file_gossip_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *Gossip) String() string {
+func (x *GossipMessage) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*Gossip) ProtoMessage() {}
+func (*GossipMessage) ProtoMessage() {}
 
-func (x *Gossip) ProtoReflect() protoreflect.Message {
+func (x *GossipMessage) ProtoReflect() protoreflect.Message {
 	mi := &file_gossip_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -235,26 +235,26 @@ func (x *Gossip) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use Gossip.ProtoReflect.Descriptor instead.
-func (*Gossip) Descriptor() ([]byte, []int) {
+// Deprecated: Use GossipMessage.ProtoReflect.Descriptor instead.
+func (*GossipMessage) Descriptor() ([]byte, []int) {
 	return file_gossip_proto_rawDescGZIP(), []int{1}
 }
 
-func (x *Gossip) GetMessageType() MessageType {
+func (x *GossipMessage) GetMessageType() MessageType {
 	if x != nil {
 		return x.MessageType
 	}
 	return MessageType_INTER_GOSSIP
 }
 
-func (x *Gossip) GetSenderId() string {
+func (x *GossipMessage) GetSenderId() string {
 	if x != nil {
 		return x.SenderId
 	}
 	return ""
 }
 
-func (x *Gossip) GetStates() []*NodeState {
+func (x *GossipMessage) GetStates() []*NodeState {
 	if x != nil {
 		return x.States
 	}
@@ -272,8 +272,8 @@ const file_gossip_proto_rawDesc = "" +
 	"\x06health\x18\x03 \x01(\x0e2\x10.main.NodeHealthR\x06health\x12\x1b\n" +
 	"\tlast_seen\x18\x04 \x01(\x03R\blastSeen\x12'\n" +
 	"\x0fsuspicion_count\x18\x05 \x01(\x05R\x0esuspicionCount\x12\x18\n" +
-	"\aversion\x18\x06 \x01(\x04R\aversion\"\x84\x01\n" +
-	"\x06Gossip\x124\n" +
+	"\aversion\x18\x06 \x01(\x04R\aversion\"\x8b\x01\n" +
+	"\rGossipMessage\x124\n" +
 	"\fmessage_type\x18\x01 \x01(\x0e2\x11.main.MessageTypeR\vmessageType\x12\x1b\n" +
 	"\tsender_id\x18\x02 \x01(\tR\bsenderId\x12'\n" +
 	"\x06states\x18\x03 \x03(\v2\x0f.main.NodeStateR\x06states*.\n" +
@@ -301,15 +301,15 @@ func file_gossip_proto_rawDescGZIP() []byte {
 var file_gossip_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
 var file_gossip_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
 var file_gossip_proto_goTypes = []any{
-	(NodeHealth)(0),   // 0: main.NodeHealth
-	(MessageType)(0),  // 1: main.MessageType
-	(*NodeState)(nil), // 2: main.NodeState
-	(*Gossip)(nil),    // 3: main.Gossip
+	(NodeHealth)(0),       // 0: main.NodeHealth
+	(MessageType)(0),      // 1: main.MessageType
+	(*NodeState)(nil),     // 2: main.NodeState
+	(*GossipMessage)(nil), // 3: main.GossipMessage
 }
 var file_gossip_proto_depIdxs = []int32{
 	0, // 0: main.NodeState.health:type_name -> main.NodeHealth
-	1, // 1: main.Gossip.message_type:type_name -> main.MessageType
-	2, // 2: main.Gossip.states:type_name -> main.NodeState
+	1, // 1: main.GossipMessage.message_type:type_name -> main.MessageType
+	2, // 2: main.GossipMessage.states:type_name -> main.NodeState
 	3, // [3:3] is the sub-list for method output_type
 	3, // [3:3] is the sub-list for method input_type
 	3, // [3:3] is the sub-list for extension type_name

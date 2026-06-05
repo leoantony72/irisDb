@@ -11,9 +11,9 @@ import (
 	"strings"
 )
 
-func HandleMetadata(conn net.Conn, s *config.Server) {
+func (b *Bus) HandleMetadata(conn net.Conn) {
 	reader := bufio.NewReader(conn)
-	err := HandleIncomingClusterMetadata(reader, s)
+	err := b.HandleIncomingClusterMetadata(reader)
 	if err != nil {
 		log.Printf("Error handling incoming cluster metadata: %v", err)
 		conn.Write([]byte(fmt.Sprintf("ERR: Failed to process incoming metadata: %v\n", err)))
@@ -24,7 +24,7 @@ func HandleMetadata(conn net.Conn, s *config.Server) {
 
 // HandleIncomingClusterMetadata processes metadata received from another node.
 // This is typically used by a joining node to sync its view of the cluster.
-func HandleIncomingClusterMetadata(reader *bufio.Reader, s *config.Server) error {
+func (b *Bus) HandleIncomingClusterMetadata(reader *bufio.Reader) error {
 	newMetadata := []*config.SlotRange{}
 	newNodeMap := map[string]*config.Node{}
 
@@ -118,7 +118,7 @@ func HandleIncomingClusterMetadata(reader *bufio.Reader, s *config.Server) error
 	}
 
 	// state mutation + locking happens inside config.Server
-	s.ApplyClusterMetadata(newMetadata, newNodeMap)
+	b.server.ApplyClusterMetadata(newMetadata, newNodeMap)
 
 	return nil
 }
