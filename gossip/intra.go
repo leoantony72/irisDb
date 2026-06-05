@@ -14,7 +14,7 @@ import (
 /*Gossips the state of the node to randomly selected nodes in the group same as the current node.*/
 func (g *Gossip) IntraGossip() {
 	members := g.view.GetGroupMembers(g.Group)
-	randomNum := rand.Uint32() * uint32(len(members))
+	randomNum := rand.Uint32() % uint32(len(members))
 	selectedNode := members[randomNum]
 
 	addr, exist := g.view.GetNodeAddr(selectedNode)
