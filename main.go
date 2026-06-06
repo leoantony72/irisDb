@@ -77,7 +77,7 @@ func main() {
 	log.Printf("🌐Host IP:%s | Addr:%s | Bus Port:%s\n", server.Host, server.Addr, server.BusPort)
 	log.Printf("📊Cluster Info - Version: %d, Nodes: %d, Slot Ranges: %d\n", server.Cluster_Version, server.Nnode, server.GetSlotRangeCount())
 	gossip := gossip.NewGossip(server)
-
+	IrisDb.Gossip = gossip
 	Bus := bus.NewBus(server, IrisDb, gossip)
 	go Bus.NewBusRoute()
 

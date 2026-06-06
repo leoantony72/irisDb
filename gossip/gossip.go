@@ -65,9 +65,10 @@ type Gossip struct {
 	/*
 		used to forward the incoming gossips(both inter and intra) received through the busport to the gossip protocol, the gossips will be processed and update the gossipTable accordingly.
 	*/
-	IntraGossipsChan chan *pb.GossipMessage
-	InterGossipsChan chan *pb.GossipMessage
-	stop             chan struct{}
+	IntraGossipsChan    chan *pb.GossipMessage
+	InterGossipsChan    chan *pb.GossipMessage
+	SuspectMessagesChan chan string //receives the nodeid from the engine package(when connection fail in the local node)
+	stop                chan struct{}
 }
 
 func NewGossip(view ClusterView) *Gossip {
@@ -141,6 +142,11 @@ func (g *Gossip) MonitorChannel() {
 			}
 			g.handleGossipMessage(msg)
 
+		case msg, ok := <-g.SuspectMessagesChan:
+			if !ok {
+				return
+			}
+			g.handleSuspectMessagesLocal(msg)
 
 		case <-g.stop:
 			return
@@ -148,8 +154,19 @@ func (g *Gossip) MonitorChannel() {
 	}
 }
 
+func (g *Gossip) handleSuspectMessagesLocal(nodeid string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	g.table[nodeid].SuspicionCount++
+	g.table[nodeid].Version++
+
+	//task
+	//.. send the suspect msg to the master node
+}
+
 // func (g *Gossip) GetNodeFromTable(id string) *NodeState{
-// 
+//
 
 // @ Todo: eth markaruth !!!!!!!!!!!!
 // what happens when a nodeExit message send by the master fails to reach the node ? and in the gossip protocol we receive a message saying there is a newNode in the cluster?

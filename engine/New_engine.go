@@ -3,6 +3,7 @@ package engine
 import (
 	"errors"
 	"fmt"
+	"iris/gossip"
 	"log"
 	"strings"
 
@@ -10,7 +11,8 @@ import (
 )
 
 type Engine struct {
-	Db *pebble.DB
+	Db     *pebble.DB
+	Gossip *gossip.Gossip
 }
 
 func NewEngine(path string) (*Engine, error) {

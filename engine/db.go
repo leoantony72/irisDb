@@ -84,6 +84,7 @@ func (e *Engine) HandleCommand(cmd string, conn net.Conn, server *config.Server)
 				fmt.Printf("SET FORWARD: ADDR: %s\n", busAddr)
 				Sconn, err := net.DialTimeout("tcp", busAddr, 10*time.Second)
 				if err != nil {
+					//increase the suspect count to 1 for 
 					errMsg := fmt.Sprintf("ERR write failed: %s\n", "Coudn't connect to Master Server")
 					conn.Write([]byte(errMsg))
 					return
