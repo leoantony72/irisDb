@@ -438,28 +438,53 @@ func (s *Server) quorumForFailoverLocked(failedMaster string) int {
 // GetLocalGroup() string
 
 func (s *Server) GetGroupMembers(group string) []string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 
 	res := []string{}
-	return res
+	groupInfo, ok := s.Group[group]
+	if !ok {
+		return res
+	}
+	return groupInfo.Nodes
 }
-func (s *Server) GetNodeAddr(nodeID string) (string, bool) {
 
-	res := ""
-	return res, true
+func (s *Server) GetNodeAddr(nodeID string) (string, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	node, ok := s.Nodes[nodeID]
+	if !ok {
+		return "", false
+	}
+	return node.Addr, true
 }
 
 func (s *Server) GetAllGroups() []string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 
 	res := []string{}
+	for groupName := range s.Group {
+		res = append(res, groupName)
+	}
 	return res
 }
+
 func (s *Server) GetLocalNodeID() string {
-
-	res :=""
-	return res
+	return s.ServerID
 }
-func (s *Server) GetLocalGroup() string {
 
-	res :=""
-	return res
+func (s *Server) GetLocalGroup() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	for groupName, groupInfo := range s.Group {
+		for _, nodeID := range groupInfo.Nodes {
+			if nodeID == s.ServerID {
+				return groupName
+			}
+		}
+	}
+	return ""
 }

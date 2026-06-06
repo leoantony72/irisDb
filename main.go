@@ -96,6 +96,9 @@ func main() {
 		}
 	}
 
+	go gossip.InterGossip()
+	go gossip.IntraGossip()
+
 	// Start replica validator AFTER cluster metadata is loaded
 	go ReplicaValidatorMiddleware(server, IrisDb)
 

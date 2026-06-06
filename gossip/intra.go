@@ -13,38 +13,43 @@ import (
 
 /*Gossips the state of the node to randomly selected nodes in the group same as the current node.*/
 func (g *Gossip) IntraGossip() {
-	members := g.view.GetGroupMembers(g.Group)
-	randomNum := rand.Uint32() % uint32(len(members))
-	selectedNode := members[randomNum]
+	for {
+		time.Sleep(10 * time.Second)
 
-	addr, exist := g.view.GetNodeAddr(selectedNode)
-	if !exist {
-		log.Println("Beware the node is not present in the server")
-		return
+		members := g.view.GetGroupMembers(g.Group)
+		randomNum := rand.Uint32() % uint32(len(members))
+		selectedNode := members[randomNum]
+
+		addr, exist := g.view.GetNodeAddr(selectedNode)
+		if !exist {
+			log.Println("Beware the node is not present in the server")
+			return
+		}
+
+		conn, err := net.DialTimeout("tcp", addr, time.Second*3)
+		if err != nil {
+			return
+		}
+
+		states := g.ToGossipStates()
+
+		data := &pb.GossipMessage{
+			MessageType: 1,
+			SenderId:    g.localID,
+			States:      states,
+		}
+		payload, err := proto.Marshal(data)
+		if err != nil {
+			return
+		}
+		encoded := base64.StdEncoding.EncodeToString(payload)
+		msg := "GOSSIP " + encoded + "\n"
+		_, err = conn.Write([]byte(msg))
+		if err != nil {
+			return
+		}
 	}
 
-	conn, err := net.DialTimeout("tcp", addr, time.Second*3)
-	if err != nil {
-		return
-	}
-
-	states := g.ToGossipStates()
-
-	data := &pb.GossipMessage{
-		MessageType: 1,
-		SenderId:    g.localID,
-		States:      states,
-	}
-	payload, err := proto.Marshal(data)
-	if err != nil {
-		return
-	}
-	encoded := base64.StdEncoding.EncodeToString(payload)
-	msg := "GOSSIP " + encoded + "\n"
-	_, err = conn.Write([]byte(msg))
-	if err != nil {
-		return
-	}
 }
 
 func ToNodeStateProtobuf(nodestate *NodeState) *pb.NodeState {
