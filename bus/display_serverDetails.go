@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-func(b *Bus) HandleShow(conn net.Conn) {
+func (b *Bus) HandleShow(conn net.Conn) {
 	serverID, host, addr, busPort, version, totalNodes, totalSlots :=
 		b.server.GetBasicInfo()
 	nodes := b.server.GetNodesSnapshot()
@@ -54,23 +54,25 @@ func(b *Bus) HandleShow(conn net.Conn) {
 		response.WriteString("  No metadata available\n")
 	} else {
 		for i, sr := range slots {
-			nodeAddrs := []string{}
+			rangeNodeIDs := make([]string, 0, len(sr.Nodes)+1)
+			if sr.MasterID != "" {
+				rangeNodeIDs = append(rangeNodeIDs, sr.MasterID)
+			}
+			rangeNodeIDs = append(rangeNodeIDs, sr.Nodes...)
 
-			if len(sr.Nodes) == 0 {
-				nodeAddrs = append(nodeAddrs, "NONE")
-			} else {
-				for _, nodeID := range sr.Nodes {
-					if nodeID == "NONE" {
-						nodeAddrs = append(nodeAddrs, "NONE")
-						break
-					}
-					node, ok := nodeMap[nodeID]
-					if !ok {
-						nodeAddrs = append(nodeAddrs, fmt.Sprintf("UNKNOWN(%s)", nodeID))
-						continue
-					}
-					nodeAddrs = append(nodeAddrs, fmt.Sprintf("%s@%s", node.ServerID, node.Addr))
+			seen := make(map[string]bool, len(rangeNodeIDs))
+			nodeAddrs := make([]string, 0, len(rangeNodeIDs))
+			for _, nodeID := range rangeNodeIDs {
+				if nodeID == "" || nodeID == "NONE" || seen[nodeID] {
+					continue
 				}
+				seen[nodeID] = true
+				node, ok := nodeMap[nodeID]
+				if !ok {
+					nodeAddrs = append(nodeAddrs, fmt.Sprintf("UNKNOWN(%s)", nodeID))
+					continue
+				}
+				nodeAddrs = append(nodeAddrs, fmt.Sprintf("%s@%s", node.ServerID, node.Addr))
 			}
 
 			nodesStr := strings.Join(nodeAddrs, ",")
@@ -86,6 +88,35 @@ func(b *Bus) HandleShow(conn net.Conn) {
 	}
 
 	response.WriteString("---------------\n")
+
+	// Gossip messages sent/received
+	response.WriteString("--- Gossip Sent ---\n")
+	if b.gossip == nil {
+		response.WriteString("  Gossip subsystem not initialized\n")
+	} else {
+		sent := b.gossip.GetSent()
+		if len(sent) == 0 {
+			response.WriteString("  None\n")
+		} else {
+			for _, s := range sent {
+				response.WriteString("  " + s + "\n")
+			}
+		}
+	}
+
+	response.WriteString("--- Gossip Received ---\n")
+	if b.gossip == nil {
+		response.WriteString("  Gossip subsystem not initialized\n")
+	} else {
+		recv := b.gossip.GetRecv()
+		if len(recv) == 0 {
+			response.WriteString("  None\n")
+		} else {
+			for _, r := range recv {
+				response.WriteString("  " + r + "\n")
+			}
+		}
+	}
 	if _, err := conn.Write([]byte(response.String())); err != nil {
 		log.Printf("Error writing response: %v", err)
 	}

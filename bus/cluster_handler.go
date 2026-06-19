@@ -86,6 +86,14 @@ func (b *Bus) HandleClusterCommand(cmd string, conn net.Conn) {
 		{
 			b.HandleGossip(conn, parts)
 		}
+	case "ANTI_ENTROPY":
+		{
+			b.HandleAntiEntropy(conn, parts)
+		}
+	case "GET":
+		{
+			b.HandleGet(conn, parts)
+		}
 	default:
 		conn.Write([]byte("ERR unknown command\n"))
 	}

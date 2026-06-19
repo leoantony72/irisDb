@@ -4,8 +4,10 @@ import (
 	"bufio"
 	"encoding/gob"
 	"iris/config"
+	"iris/gossip"
 	"log"
 	"net"
+	"time"
 )
 
 func (b *Bus) HandleClusterSnapshot(reader *bufio.Reader, conn net.Conn) {
@@ -23,6 +25,18 @@ func (b *Bus) HandleClusterSnapshot(reader *bufio.Reader, conn net.Conn) {
 
 	log.Printf("Received cluster snapshot, applying...")
 	b.server.ApplyClusterSnapshot(snap)
+	// Update gossip table via JoinEvents for all nodes in snapshot
+	if b.gossip != nil {
+		for _, n := range snap.Nodes {
+			b.gossip.JoinEvents <- gossip.NodeState{
+				NodeID:   n.ServerID,
+				Group:    n.Group,
+				Health:   gossip.ALIVE,
+				LastSeen: time.Now(),
+				Version:  snap.ClusterVersion,
+			}
+		}
+	}
 	conn.Write([]byte("SNAPSHOT_OK\n"))
 	log.Printf("Snapshot applied successfully")
 }

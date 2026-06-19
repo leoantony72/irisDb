@@ -20,6 +20,10 @@ func (g *Gossip) handleGossipMessage(msg *pb.GossipMessage) {
 		if incoming.Version > local.Version {
 			local.Health = NodeHealth(incoming.Health)
 			local.Version = incoming.Version
+			// keep group in sync if changed
+			if incoming.Group != "" {
+				local.Group = incoming.Group
+			}
 		}
 
 		if incoming.Health == pb.NodeHealth(SUSPECT) && incoming.Version > local.Version {
@@ -40,7 +44,7 @@ func protoMessageToNodeState(msg *pb.NodeState) *NodeState {
 		NodeID:         msg.NodeId,
 		Group:          msg.Group,
 		Health:         NodeHealth(msg.Health),
-		LastSeen:       time.Time{},
+		LastSeen:       time.Unix(msg.LastSeen, 0),
 		SuspicionCount: int(msg.SuspicionCount),
 		Version:        msg.Version,
 	}

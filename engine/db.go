@@ -6,6 +6,7 @@ import (
 	"iris/config"
 	"iris/utils"
 	"log"
+	"math/rand"
 	"net"
 	"os"
 	"strings"
@@ -77,14 +78,15 @@ func (e *Engine) HandleCommand(cmd string, conn net.Conn, server *config.Server)
 					}
 				}
 			} else {
-				// @leoantony72 forward the req to the master node
+				// @leoantony72 forward the req to the master node of the key range
 				// (masternode = server.Metadata[master_slot].Nodes[0])
 				fmt.Println("KEY FORWARD")
 				busAddr, _ := utils.BumpPort(server.Nodes[g].Addr, 10000)
 				fmt.Printf("SET FORWARD: ADDR: %s\n", busAddr)
 				Sconn, err := net.DialTimeout("tcp", busAddr, 10*time.Second)
 				if err != nil {
-					//increase the suspect count to 1 for 
+					//increase the suspect count to 1 for
+					e.Gossip.HandleSuspectMessagesLocal(server.Nodes[g].ServerID)
 					errMsg := fmt.Sprintf("ERR write failed: %s\n", "Coudn't connect to Master Server")
 					conn.Write([]byte(errMsg))
 					return
@@ -125,6 +127,35 @@ func (e *Engine) HandleCommand(cmd string, conn net.Conn, server *config.Server)
 			if len(parts) != 2 {
 				conn.Write([]byte("ERR usage: GET KEY \n"))
 				return
+			}
+			hash := utils.CalculateCRC16([]byte(parts[1]))
+			master_slot := server.FindNodeIdx(hash % server.N)
+			sr, ok := server.GetSlotRangeByIndex(master_slot)
+			if !ok {
+				// handle error (range not found)
+				conn.Write([]byte("ERR Internal Error\n"))
+				return
+			}
+			rnum := rand.Intn(len(sr.Nodes))
+			masternode := sr.Nodes[rnum]
+			if masternode != server.ServerID {
+				//forward req to the read node address (bus port)
+				addr, ok := server.GetNodeAddr(masternode)
+				if !ok {
+					fmt.Println("ERR: internal server issue")
+					conn.Write([]byte("Err: Internal server issue"))
+					return
+				}
+				busAddr, _ := utils.BumpPort(addr, 10000)
+				fmt.Printf("GET FORWARD: ADDR: %s\n", busAddr)
+				Sconn, err := net.DialTimeout("tcp", busAddr, 10*time.Second)
+				if err != nil {
+					conn.Write([]byte("ERR INTERNAL ERROR"))
+					return
+				}
+				//GET KEY VERSIONID
+				msg := fmt.Sprintf("GET %s %d\n", parts[1], server.GetClusterVersion())
+				Sconn.Write([]byte(msg))
 			}
 			data, closer, err := e.Db.Get([]byte(parts[1]))
 			if err != nil {

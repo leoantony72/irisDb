@@ -2,6 +2,8 @@ package gossip
 
 import (
 	"iris/serializer/pb"
+	"log"
+	"math/rand"
 	"sync"
 	"time"
 )
@@ -45,11 +47,13 @@ type ClusterView interface {
 type GossipTable map[string]*NodeState
 
 type Gossip struct {
-	localID string
-	Group   string
-	view    ClusterView
-	table   GossipTable
-	mu      sync.RWMutex
+	localID  string
+	Group    string
+	view     ClusterView
+	table    GossipTable
+	mu       sync.RWMutex
+	sentMsgs []string
+	recvMsgs []string
 
 	/*
 		used to update the node states in the gossip protocol, when a nodes is marked as DEAD, the nodeID will
@@ -72,19 +76,55 @@ type Gossip struct {
 }
 
 func NewGossip(view ClusterView) *Gossip {
+	// seed RNG for gossip selection
+	rand.Seed(time.Now().UnixNano())
 	gossip := &Gossip{
-		localID:          view.GetLocalNodeID(),
-		Group:            view.GetLocalGroup(),
-		view:             view,
-		table:            make(GossipTable),
-		DeadEvents:       make(chan string, 10),
-		JoinEvents:       make(chan NodeState, 10),
-		IntraGossipsChan: make(chan *pb.GossipMessage, 10),
-		InterGossipsChan: make(chan *pb.GossipMessage, 10),
+		localID:             view.GetLocalNodeID(),
+		Group:               view.GetLocalGroup(),
+		view:                view,
+		table:               make(GossipTable),
+		DeadEvents:          make(chan string, 10),
+		JoinEvents:          make(chan NodeState, 10),
+		IntraGossipsChan:    make(chan *pb.GossipMessage, 10),
+		InterGossipsChan:    make(chan *pb.GossipMessage, 10),
+		SuspectMessagesChan: make(chan string, 10),
+		stop:                make(chan struct{}),
 	}
 
 	gossip.seedFromView()
 	return gossip
+}
+
+// AddSent records a sent gossip message summary.
+func (g *Gossip) AddSent(summary string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.sentMsgs = append(g.sentMsgs, summary)
+}
+
+// AddRecv records a received gossip message summary.
+func (g *Gossip) AddRecv(summary string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.recvMsgs = append(g.recvMsgs, summary)
+}
+
+// GetSent returns a copy of sent message summaries.
+func (g *Gossip) GetSent() []string {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	out := make([]string, len(g.sentMsgs))
+	copy(out, g.sentMsgs)
+	return out
+}
+
+// GetRecv returns a copy of received message summaries.
+func (g *Gossip) GetRecv() []string {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	out := make([]string, len(g.recvMsgs))
+	copy(out, g.recvMsgs)
+	return out
 }
 
 // will initialize the gossip table with the all the current nodes present in the servers current server config.
@@ -115,6 +155,8 @@ func (g *Gossip) MonitorChannel() {
 			if !ok {
 				return
 			}
+			// debug
+			log.Printf("[GOSSIP] DeadEvents received for %s", nodeID)
 			g.mu.Lock()
 			if state, exists := g.table[nodeID]; exists {
 				state.Health = DEAD
@@ -126,6 +168,8 @@ func (g *Gossip) MonitorChannel() {
 			if !ok {
 				return
 			}
+			// debug
+			log.Printf("[GOSSIP] JoinEvents received for %s (group=%s)", node.NodeID, node.Group)
 			g.mu.Lock()
 			g.table[node.NodeID] = &node
 			g.mu.Unlock()
@@ -146,7 +190,7 @@ func (g *Gossip) MonitorChannel() {
 			if !ok {
 				return
 			}
-			g.handleSuspectMessagesLocal(msg)
+			g.HandleSuspectMessagesLocal(msg)
 
 		case <-g.stop:
 			return
@@ -154,7 +198,7 @@ func (g *Gossip) MonitorChannel() {
 	}
 }
 
-func (g *Gossip) handleSuspectMessagesLocal(nodeid string) {
+func (g *Gossip) HandleSuspectMessagesLocal(nodeid string) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 

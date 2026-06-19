@@ -65,6 +65,21 @@ func (s *Server) ApplyClusterSnapshot(snapshot ClusterSnapshot) {
 	s.Cluster_Version = snapshot.ClusterVersion
 	s.MasterNodeID = snapshot.MasterNodeID
 
+	// rebuild Group map from node Group fields in the snapshot
+	newGroup := make(map[string]*GroupInfo)
+	for _, n := range snapshot.Nodes {
+		if n.Group == "" {
+			n.Group = "default"
+		}
+		gi, ok := newGroup[n.Group]
+		if !ok {
+			gi = &GroupInfo{Name: n.Group, Nodes: []string{}, Status: HEALTHY}
+			newGroup[n.Group] = gi
+		}
+		gi.Nodes = append(gi.Nodes, n.ServerID)
+	}
+	s.Group = newGroup
+
 	if oldMaster != snapshot.MasterNodeID {
 		log.Printf("[INFO]: Master changed from %s to %s (version %d). Clearing suspect messages.\n", oldMaster, snapshot.MasterNodeID, snapshot.ClusterVersion)
 		s.SuspectLeaderMsg = make(map[string]time.Time)

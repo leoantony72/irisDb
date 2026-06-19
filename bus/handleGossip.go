@@ -2,17 +2,21 @@ package bus
 
 import (
 	"encoding/base64"
+	"fmt"
 	"iris/serializer/pb"
 	"net"
+	"time"
 
-	"github.com/gogo/protobuf/proto"
+	"google.golang.org/protobuf/proto"
 )
 
 func (b *Bus) HandleGossip(conn net.Conn, parts []string) {
+	fmt.Println("GOSSIP RECEIVED HERE🙌👍", len(parts))
 	if len(parts) < 2 {
 		conn.Write([]byte("ERR invalid gossip\n"))
 		return
 	}
+	fmt.Println("GOSSIP RECEIVED HERE🙌👍")
 	payload, err := base64.StdEncoding.DecodeString(parts[1])
 	if err != nil {
 		conn.Write([]byte("ERR invalid base64\n"))
@@ -36,6 +40,16 @@ func (b *Bus) HandleGossip(conn net.Conn, parts []string) {
 	} else {
 		//intra (comm within the group)
 		b.gossip.IntraGossipsChan <- &Message
+	}
+
+	// record received summary
+	msgType := "INTRA"
+	if Message.GetMessageType() == 0 {
+		msgType = "INTER"
+	}
+	summary := fmt.Sprintf("%s RECV %s from %s | States:%d", time.Now().Format(time.RFC3339), msgType, Message.GetSenderId(), len(Message.GetStates()))
+	if b.gossip != nil {
+		b.gossip.AddRecv(summary)
 	}
 
 }

@@ -47,9 +47,27 @@ func (s *Server) NodeExit(serverID string) error {
 		slot.Nodes = out
 	}
 
+	// remove from Nodes map
 	delete(s.Nodes, serverID)
+	// remove from any Group lists
+	for gname, gi := range s.Group {
+		out := gi.Nodes[:0]
+		for _, id := range gi.Nodes {
+			if id != serverID {
+				out = append(out, id)
+			}
+		}
+		gi.Nodes = out
+		// if group empty, keep it (may be recreated later)
+		s.Group[gname] = gi
+	}
 	s.Nnode = uint16(len(s.Nodes))
 	s.Cluster_Version++
+
+	// notify local gossip subsystem if available
+	if s.Gossip != nil {
+		s.Gossip.DeadEvents <- serverID
+	}
 	s.mu.Unlock()
 	return nil
 }

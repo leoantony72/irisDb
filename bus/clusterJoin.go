@@ -5,9 +5,11 @@ import (
 	"encoding/gob"
 	"fmt"
 	"iris/config"
+	"iris/gossip"
 	"log"
 	"net"
 	"strings"
+	"time"
 )
 
 func (b *Bus) HandleJoin(conn net.Conn, parts []string) {
@@ -47,6 +49,18 @@ func (b *Bus) HandleJoin(conn net.Conn, parts []string) {
 
 		rangeIndices := b.server.FindRangeIndexByServerID(serverID)
 		b.sendReJoinSuccess(conn, serverID, rangeIndices, int(b.server.GetClusterVersion()))
+
+		// notify gossip subsystem that this node is alive/rejoined
+		if b.gossip != nil {
+			b.gossip.JoinEvents <- gossip.NodeState{
+				NodeID:   serverID,
+				Group:    group,
+				Health:   gossip.ALIVE,
+				LastSeen: time.Now(),
+				Version:  b.server.GetClusterVersion(),
+			}
+		}
+
 		return
 	}
 
@@ -119,6 +133,17 @@ func (b *Bus) HandleJoin(conn net.Conn, parts []string) {
 	if err != nil {
 		log.Println("Error:", err)
 	}
+
+	// notify gossip subsystem about the new node
+	if b.gossip != nil {
+		b.gossip.JoinEvents <- gossip.NodeState{
+			NodeID:   newServerID,
+			Group:    group,
+			Health:   gossip.ALIVE,
+			LastSeen: time.Now(),
+			Version:  b.server.GetClusterVersion(),
+		}
+	}
 }
 
 func sendJoinSuccess(conn net.Conn, newServerID string, startRange, endRange int, cluster_version int) error {
@@ -131,7 +156,7 @@ func sendJoinSuccess(conn net.Conn, newServerID string, startRange, endRange int
 	return nil
 }
 
-func(b *Bus) sendReJoinSuccess(conn net.Conn, ServerID string, ranges []int, cluster_version int) error {
+func (b *Bus) sendReJoinSuccess(conn net.Conn, ServerID string, ranges []int, cluster_version int) error {
 
 	var build strings.Builder
 
@@ -151,7 +176,7 @@ func(b *Bus) sendReJoinSuccess(conn net.Conn, ServerID string, ranges []int, clu
 	return nil
 }
 
-func(b *Bus) sendClusterMetadata(conn net.Conn) error {
+func (b *Bus) sendClusterMetadata(conn net.Conn) error {
 	snap := b.server.BuildClusterSnapshot()
 
 	var buf bytes.Buffer

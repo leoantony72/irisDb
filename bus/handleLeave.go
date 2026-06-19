@@ -27,6 +27,11 @@ func (b *Bus) HandleLeave(conn net.Conn, parts []string) {
 		return
 	}
 
+	// notify gossip subsystem that this node has left/been removed
+	if b.gossip != nil {
+		b.gossip.DeadEvents <- serverId
+	}
+
 	peers := b.server.GetCommitPeers()
 	for _, p := range peers {
 		busAddr, _ := utils.BumpPort(p.Addr, 10000)

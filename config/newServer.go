@@ -87,7 +87,9 @@ func NewServer(config *utils.Config, group_name *string) *Server {
 			server.BusPort = strconv.Itoa(config.Port + 10000)
 			server.Addr = net.JoinHostPort(ip, p)
 		}
-		server.ReplicationFactor = config.ReplicationFactor
+		if config.ReplicationFactor > 0 {
+			server.ReplicationFactor = config.ReplicationFactor
+		}
 		server.Nodes[name] = &Node{ServerID: name, Addr: addr, Status: ALIVE, Group: config.NodeGroup}
 		server.Group = make(map[string]*GroupInfo)
 		server.Group[config.NodeGroup] = &GroupInfo{Name: config.NodeGroup, Nodes: []string{name}, Status: HEALTHY}

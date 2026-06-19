@@ -45,6 +45,10 @@ func main() {
 	loaded_data, err := CheckAndLoadMetadata(IrisDb)
 	if err == nil {
 		server = loaded_data
+		if server.ReplicationFactor <= 0 {
+			log.Printf("[WARN] Loaded replication factor %d is invalid; defaulting to 1", server.ReplicationFactor)
+			server.ReplicationFactor = 1
+		}
 		log.Printf("[INFO] Loaded server config from database. ServerID: %s\n", server.ServerID)
 	} else {
 		server = config.NewServer(configData, node_group)
@@ -78,6 +82,8 @@ func main() {
 	log.Printf("📊Cluster Info - Version: %d, Nodes: %d, Slot Ranges: %d\n", server.Cluster_Version, server.Nnode, server.GetSlotRangeCount())
 	gossip := gossip.NewGossip(server)
 	IrisDb.Gossip = gossip
+	server.Gossip = gossip
+	go gossip.MonitorChannel()
 	Bus := bus.NewBus(server, IrisDb, gossip)
 	go Bus.NewBusRoute()
 
@@ -103,6 +109,11 @@ func main() {
 	go ReplicaValidatorMiddleware(server, IrisDb)
 
 	go server.Heartbeat()
+
+	// Start anti-entropy consistency checker (only activates on master nodes)
+	antiEntropyAdapter := &AntiEntropyAdapter{db: IrisDb, server: server}
+	go server.RunAntiEntropy(antiEntropyAdapter)
+
 	for {
 		conn, err := lis.Accept()
 		if err != nil {

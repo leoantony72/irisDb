@@ -24,7 +24,14 @@ func joinCluster(addr string, server *config.Server, db *engine.Engine) error {
 	}
 	defer conn.Close()
 
-	joinMsg := fmt.Sprintf("JOIN %s %s %f %s\n", server.ServerID, server.Port, server.ResourceScore, server.GetServerGroup())
+	// Ensure group is present — some loaded configs may miss it.
+	group := strings.TrimSpace(server.GetServerGroup())
+	if group == "" {
+		log.Printf("[WARN] server group empty; defaulting to 'default' in JOIN message")
+		group = "default"
+	}
+
+	joinMsg := fmt.Sprintf("JOIN %s %s %f %s\n", server.ServerID, server.Port, server.ResourceScore, group)
 	if _, err = conn.Write([]byte(joinMsg)); err != nil {
 		return fmt.Errorf("failed to send JOIN message: %w", err)
 	}

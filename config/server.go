@@ -3,6 +3,7 @@ package config
 import (
 	"bufio"
 	"fmt"
+	"iris/gossip"
 	"iris/utils"
 	"log"
 	"net"
@@ -89,6 +90,7 @@ type Server struct {
 	BusPort           string
 	Prepared          map[string]*PrepareMessage
 	MasterNodeID      string
+	Gossip            *gossip.Gossip
 
 	mu           sync.RWMutex
 	Listener     net.Listener
