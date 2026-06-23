@@ -26,6 +26,7 @@ message NodeState {
 
     int32 suspicion_count = 5;
     uint64 version = 6;
+    double resource_score = 7;
 }
 message GossipMessage {
   MessageType message_type = 1;

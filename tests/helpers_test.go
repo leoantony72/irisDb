@@ -107,6 +107,7 @@ func NewTestEngine(t *testing.T) *engine.Engine {
 type MockClusterView struct {
 	Groups     map[string][]string // group name → node IDs
 	Addrs      map[string]string   // node ID → addr
+	Scores     map[string]float64  // node ID → ResourceScore
 	LocalID    string
 	LocalGroup string
 }
@@ -130,6 +131,16 @@ func (m *MockClusterView) GetAllGroups() []string {
 
 func (m *MockClusterView) GetLocalNodeID() string { return m.LocalID }
 func (m *MockClusterView) GetLocalGroup() string  { return m.LocalGroup }
+
+// GetNodeResourceScore returns a pre-configured score or 0 if not set.
+func (m *MockClusterView) GetNodeResourceScore(nodeID string) float64 {
+	if m.Scores != nil {
+		if score, ok := m.Scores[nodeID]; ok {
+			return score
+		}
+	}
+	return 0
+}
 
 // ---------------------------------------------------------------------------
 // Gossip helpers

@@ -90,6 +90,7 @@ func ToNodeStateProtobuf(nodestate *NodeState) *pb.NodeState {
 		LastSeen:       nodestate.LastSeen.Unix(),
 		SuspicionCount: int32(nodestate.SuspicionCount),
 		Version:        nodestate.Version,
+		ResourceScore:  nodestate.ResourceScore,
 	}
 }
 

@@ -7,6 +7,7 @@ import (
 	"log"
 	"net"
 	"strings"
+	"time"
 
 	"iris/bus"
 	"iris/config"
@@ -83,6 +84,10 @@ func main() {
 	gossip := gossip.NewGossip(server)
 	IrisDb.Gossip = gossip
 	server.Gossip = gossip
+	gossip.OnResourceScoreUpdate = func(nodeID string, score float64, version uint64) {
+		server.UpdateNodeResourceScore(nodeID, score, version)
+	}
+
 	go gossip.MonitorChannel()
 	Bus := bus.NewBus(server, IrisDb, gossip)
 	go Bus.NewBusRoute()
@@ -104,11 +109,9 @@ func main() {
 
 	go gossip.InterGossip()
 	go gossip.IntraGossip()
-
-	// Start replica validator AFTER cluster metadata is loaded
 	go ReplicaValidatorMiddleware(server, IrisDb)
-
 	go server.Heartbeat()
+	go server.RunResourceScoreUpdater(30 * time.Second)
 
 	// Start anti-entropy consistency checker (only activates on master nodes)
 	antiEntropyAdapter := &AntiEntropyAdapter{db: IrisDb, server: server}

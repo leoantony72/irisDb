@@ -23,11 +23,12 @@ const (
 )
 
 type Node struct {
-	ServerID      string
-	Addr          string
-	Status        NodeStatus
-	Group         string //asia-ind, eu-west, us-east
-	ResourceScore float64
+	ServerID              string
+	Addr                  string
+	Status                NodeStatus
+	Group                 string
+	ResourceScore         float64
+	ResourceScoreVersion  uint64
 }
 
 type GroupStatus int
@@ -489,4 +490,25 @@ func (s *Server) GetLocalGroup() string {
 		}
 	}
 	return ""
+}
+
+func (s *Server) GetNodeResourceScore(nodeID string) float64 {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if n, ok := s.Nodes[nodeID]; ok {
+		return n.ResourceScore
+	}
+	return 0
+}
+func (s *Server) UpdateNodeResourceScore(nodeID string, score float64, version uint64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	node, ok := s.Nodes[nodeID]
+	if !ok {
+		return
+	}
+	if version > node.ResourceScoreVersion {
+		node.ResourceScore = score
+		node.ResourceScoreVersion = version
+	}
 }

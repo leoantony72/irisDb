@@ -24,6 +24,16 @@ func (g *Gossip) handleGossipMessage(msg *pb.GossipMessage) {
 			if incoming.Group != "" {
 				local.Group = incoming.Group
 			}
+			
+			if incoming.ResourceScore != local.ResourceScore {
+				local.ResourceScore = incoming.ResourceScore
+				if g.OnResourceScoreUpdate != nil {
+					nodeID := incoming.NodeId
+					score := incoming.ResourceScore
+					version := incoming.Version
+					go g.OnResourceScoreUpdate(nodeID, score, version)
+				}
+			}
 		}
 
 		if incoming.Health == pb.NodeHealth(SUSPECT) && incoming.Version > local.Version {
@@ -46,6 +56,7 @@ func protoMessageToNodeState(msg *pb.NodeState) *NodeState {
 		Health:         NodeHealth(msg.Health),
 		LastSeen:       time.Unix(msg.LastSeen, 0),
 		SuspicionCount: int(msg.SuspicionCount),
+		ResourceScore:  msg.ResourceScore,
 		Version:        msg.Version,
 	}
 }

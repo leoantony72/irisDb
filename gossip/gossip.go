@@ -28,6 +28,7 @@ type NodeState struct {
 	Health         NodeHealth
 	LastSeen       time.Time
 	SuspicionCount int
+	ResourceScore  float64
 	Version        uint64
 }
 
@@ -42,9 +43,16 @@ type ClusterView interface {
 	GetAllGroups() []string
 	GetLocalNodeID() string
 	GetLocalGroup() string
+	GetNodeResourceScore(nodeID string) float64
 }
 
 type GossipTable map[string]*NodeState
+
+type ResourceScoreEvent struct {
+	NodeID  string
+	Score   float64
+	Version uint64
+}
 
 type Gossip struct {
 	localID  string
@@ -73,6 +81,9 @@ type Gossip struct {
 	InterGossipsChan    chan *pb.GossipMessage
 	SuspectMessagesChan chan string //receives the nodeid from the engine package(when connection fail in the local node)
 	stop                chan struct{}
+
+	ResourceScoreEvents chan ResourceScoreEvent
+	OnResourceScoreUpdate func(nodeID string, score float64, version uint64)
 }
 
 func NewGossip(view ClusterView) *Gossip {
@@ -88,6 +99,7 @@ func NewGossip(view ClusterView) *Gossip {
 		IntraGossipsChan:    make(chan *pb.GossipMessage, 10),
 		InterGossipsChan:    make(chan *pb.GossipMessage, 10),
 		SuspectMessagesChan: make(chan string, 10),
+		ResourceScoreEvents: make(chan ResourceScoreEvent, 10),
 		stop:                make(chan struct{}),
 	}
 
@@ -135,11 +147,12 @@ func (g *Gossip) seedFromView() {
 	for _, group_name := range g.view.GetAllGroups() {
 		for _, nodeID := range g.view.GetGroupMembers(group_name) {
 			g.table[nodeID] = &NodeState{
-				NodeID:   nodeID,
-				Group:    group_name,
-				Health:   ALIVE,
-				LastSeen: time.Now(),
-				Version:  0,
+				NodeID:        nodeID,
+				Group:         group_name,
+				Health:        ALIVE,
+				LastSeen:      time.Now(),
+				ResourceScore: g.view.GetNodeResourceScore(nodeID),
+				Version:       0,
 			}
 		}
 	}
@@ -168,7 +181,7 @@ func (g *Gossip) MonitorChannel() {
 			if !ok {
 				return
 			}
-			// debug
+
 			log.Printf("[GOSSIP] JoinEvents received for %s (group=%s)", node.NodeID, node.Group)
 			g.mu.Lock()
 			g.table[node.NodeID] = &node
@@ -192,9 +205,38 @@ func (g *Gossip) MonitorChannel() {
 			}
 			g.HandleSuspectMessagesLocal(msg)
 
+		case event, ok := <-g.ResourceScoreEvents:
+			if !ok {
+				return
+			}
+			g.applyResourceScoreEvent(event)
+
 		case <-g.stop:
 			return
 		}
+	}
+}
+
+
+func (g *Gossip) applyResourceScoreEvent(event ResourceScoreEvent) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	state, exists := g.table[event.NodeID]
+	if !exists {
+		g.table[event.NodeID] = &NodeState{
+			NodeID:        event.NodeID,
+			Health:        ALIVE,
+			LastSeen:      time.Now(),
+			ResourceScore: event.Score,
+			Version:       event.Version,
+		}
+		return
+	}
+
+	if event.Version > state.Version {
+		state.ResourceScore = event.Score
+		state.Version = event.Version
 	}
 }
 
