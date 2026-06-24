@@ -73,6 +73,9 @@ func (b *Bus) handleConnection(conn net.Conn) {
 
 		trimmedCmd := strings.TrimSpace(line)
 
+		tc := config.NewTrackingConn(conn)
+		start := time.Now()
+
 		// Special handling for SNAPSHOT: it has binary data following the text command
 		// We need to handle it before the buffered reader interferes
 		if strings.ToUpper(trimmedCmd) == "SNAPSHOT" {
@@ -80,10 +83,14 @@ func (b *Bus) handleConnection(conn net.Conn) {
 			// Close the current connection and let the sender establish a new one for binary data
 			// Actually, SNAPSHOT data comes on the same connection right after this line
 			// We pass the reader to HandleClusterSnapshot so it can continue reading from the buffered stream
-			b.HandleClusterSnapshot(reader, conn)
+			b.HandleClusterSnapshot(reader, tc)
+			dur := time.Since(start)
+			b.server.Net.RecordPeer(!tc.HasError, dur)
 			continue
 		}
 
-		b.HandleClusterCommand(trimmedCmd, conn)
+		b.HandleClusterCommand(trimmedCmd, tc)
+		dur := time.Since(start)
+		b.server.Net.RecordPeer(!tc.HasError, dur)
 	}
 }

@@ -93,7 +93,7 @@ func (b *Bus) HandleClusterMetdataUpdate(conn net.Conn, parts []string) {
 					continue
 				}
 
-				log.Printf("[💖INFO] rangeMaster: %s | ServerID: %s")
+				log.Printf("[💖INFO] rangeMaster: %s | ServerID: %s", r.MasterID, b.server.ServerID)
 				// only the master for this range should initiate transfers
 				if r.MasterID != b.server.ServerID {
 					continue

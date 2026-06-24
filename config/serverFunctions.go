@@ -32,7 +32,7 @@ func (s *Server) SendReplicaCMD(cmd string, replicaID string) bool {
 	response := make([]byte, 1024)
 	n, err := conn.Read(response)
 	if err != nil {
-		fmt.Printf("SendReplicaCMD:failed to read from peer(ID:%s) %s: %w\n", r.ServerID, busAddr, err.Error())
+		fmt.Printf("SendReplicaCMD:failed to read from peer(ID:%s) %s: %s\n", r.ServerID, busAddr, err.Error())
 		return false
 	}
 

@@ -1,4 +1,4 @@
-package config
+﻿package config
 
 import (
 	"fmt"
@@ -149,5 +149,14 @@ func (s *Server) DetermineResourceScore(dataDir string) float64 {
 	diskScore := math.Log2(1 + diskGiB)
 	cpuScore := cpuCores
 
-	return 0.5*ramScore + 0.3*cpuScore + 0.2*diskScore
+	// CapacityScore: hardware capability weighted sum
+	capacityScore := 0.5*ramScore + 0.3*cpuScore + 0.2*diskScore
+
+	// NetworkFactor: [0, 1] multiplier derived from client/peer success rates
+	// and average latency. Returns 1.0 when there is no traffic data yet so
+	// brand-new nodes are not penalised.
+	networkFactor := s.ComputeNetworkFactor()
+
+	// ResourceScore = CapacityScore x NetworkFactor
+	return capacityScore * networkFactor
 }

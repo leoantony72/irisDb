@@ -76,6 +76,45 @@ type ResourceTracker struct {
 	MaxDisk     float64
 }
 
+
+type NetworkMetrics struct {
+
+	clientTotal   atomic.Uint64
+	clientSuccess atomic.Uint64
+	clientLatency atomic.Uint64 
+
+
+	peerTotal   atomic.Uint64
+	peerSuccess atomic.Uint64
+	peerLatency atomic.Uint64 
+}
+
+
+func (nm *NetworkMetrics) RecordClient(success bool, dur time.Duration) {
+	nm.clientTotal.Add(1)
+	if success {
+		nm.clientSuccess.Add(1)
+	}
+	if dur > 0 {
+		nm.clientLatency.Add(uint64(dur.Microseconds()))
+	}
+}
+func (nm *NetworkMetrics) RecordPeer(success bool, dur time.Duration) {
+	nm.peerTotal.Add(1)
+	if success {
+		nm.peerSuccess.Add(1)
+	}
+	if dur > 0 {
+		nm.peerLatency.Add(uint64(dur.Microseconds()))
+	}
+}
+
+func (nm *NetworkMetrics) Snapshot() (clientTotal, clientSuccess, clientLatencyUs,
+	peerTotal, peerSuccess, peerLatencyUs uint64) {
+	return nm.clientTotal.Load(), nm.clientSuccess.Load(), nm.clientLatency.Load(),
+		nm.peerTotal.Load(), nm.peerSuccess.Load(), nm.peerLatency.Load()
+}
+
 type Server struct {
 	ServerID          string
 	Host              string
@@ -108,6 +147,7 @@ type Server struct {
 	SuspectLeaderMsg      map[string]time.Time
 	Votes                 map[string]bool
 	Rt                    ResourceTracker
+	Net                   NetworkMetrics
 	ResourceScore         float64
 	MASTER_FAIL_THRESHOLD int
 }

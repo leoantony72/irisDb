@@ -151,6 +151,10 @@ func handleConnection(conn net.Conn, db *engine.Engine, server *config.Server) {
 			return
 		}
 
-		db.HandleCommand(strings.TrimSpace(line), conn, server)
+		tc := config.NewTrackingConn(conn)
+		start := time.Now()
+		db.HandleCommand(strings.TrimSpace(line), tc, server)
+		dur := time.Since(start)
+		server.Net.RecordClient(!tc.HasError, dur)
 	}
 }
