@@ -1,4 +1,4 @@
-# IrisDb (Disdb)
+# IrisDb
 
 IrisDb is a distributed, fault-tolerant, horizontally scalable key-value database built in Go. It uses CockroachDB’s **Pebble** storage engine under the hood for highly efficient local data persistence. The system uses consistent sharding over 16,384 virtual slots, a two-phase node joining consensus, active peer gossip, replica verification, automated failover elections, and background anti-entropy sync.
 
