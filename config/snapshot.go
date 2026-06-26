@@ -42,7 +42,6 @@ func (s *Server) BuildClusterSnapshot() ClusterSnapshot {
 
 func (s *Server) ApplyClusterSnapshot(snapshot ClusterSnapshot) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	oldMaster := s.MasterNodeID
 	newNodes := make(map[string]*Node, len(snapshot.Nodes))
 	for i := range snapshot.Nodes {
@@ -83,6 +82,11 @@ func (s *Server) ApplyClusterSnapshot(snapshot ClusterSnapshot) {
 	if oldMaster != snapshot.MasterNodeID {
 		log.Printf("[INFO]: Master changed from %s to %s (version %d). Clearing suspect messages.\n", oldMaster, snapshot.MasterNodeID, snapshot.ClusterVersion)
 		s.SuspectLeaderMsg = make(map[string]time.Time)
+	}
+	s.mu.Unlock()
+
+	if s.OnMetadataUpdated != nil {
+		s.OnMetadataUpdated()
 	}
 }
 

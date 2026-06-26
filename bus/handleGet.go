@@ -38,6 +38,10 @@ func (b *Bus) HandleGet(conn net.Conn, parts []string) {
 		}
 	}
 	val, err := b.db.Get(key)
+	if err != nil {
+		conn.Write([]byte("NOTFOUND\n"))
+		return
+	}
 	//msg: VAL
 	conn.Write([]byte(val + "\n"))
 }

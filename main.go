@@ -84,6 +84,9 @@ func main() {
 	gossip := gossip.NewGossip(server)
 	IrisDb.Gossip = gossip
 	server.Gossip = gossip
+	server.OnMetadataUpdated = func() {
+		IrisDb.CleanUnownedKeys(server)
+	}
 	gossip.OnResourceScoreUpdate = func(nodeID string, score float64, version uint64) {
 		server.UpdateNodeResourceScore(nodeID, score, version)
 	}

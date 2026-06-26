@@ -6,8 +6,7 @@ func (s *Server) UpdateHeartbeat(peerId string, unreableNodes []string, group st
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	//before updating, check if peerId exists in s.Nodes
-	if !s.HasNode(peerId) {
+	if _, ok := s.Nodes[peerId]; !ok {
 		return false // maybe in the future add some logic to handle this err
 	}
 

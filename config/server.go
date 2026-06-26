@@ -150,6 +150,7 @@ type Server struct {
 	Net                   NetworkMetrics
 	ResourceScore         float64
 	MASTER_FAIL_THRESHOLD int
+	OnMetadataUpdated     func()
 }
 
 func (s *Server) GetClusterVersion() uint64 {

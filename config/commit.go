@@ -10,7 +10,12 @@ import (
 // It encapsulates all mutation of Prepared, Metadata, Nodes, Cluster_Version.
 func (s *Server) ApplyCommitByID(messageID string) error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	defer func() {
+		s.mu.Unlock()
+		if s.OnMetadataUpdated != nil {
+			s.OnMetadataUpdated()
+		}
+	}()
 
 	preparedMsg, exists := s.Prepared[messageID]
 	if !exists {
@@ -114,16 +119,30 @@ func (s *Server) ApplyCommitByID(messageID string) error {
 		for _, id := range r.Nodes {
 			existing[id] = true
 		}
-		// pick candidates from s.Nodes
-		for id := range s.Nodes {
-			if needed <= 0 {
-				break
-			}
+		// pick candidates from s.Nodes sorted by ResourceScore in descending order, with ID as tie-breaker.
+		type candidateInfo struct {
+			id    string
+			score float64
+		}
+		candidates := make([]candidateInfo, 0, len(s.Nodes))
+		for id, node := range s.Nodes {
 			if existing[id] {
 				continue
 			}
-			r.Nodes = append(r.Nodes, id)
-			existing[id] = true
+			candidates = append(candidates, candidateInfo{id: id, score: node.ResourceScore})
+		}
+		sort.Slice(candidates, func(i, j int) bool {
+			if candidates[i].score != candidates[j].score {
+				return candidates[i].score > candidates[j].score
+			}
+			return candidates[i].id < candidates[j].id
+		})
+
+		for _, c := range candidates {
+			if needed <= 0 {
+				break
+			}
+			r.Nodes = append(r.Nodes, c.id)
 			needed--
 		}
 	}

@@ -27,11 +27,11 @@ func (b *Bus) HandleHeartbeat(conn net.Conn, cmd []string) {
 		return
 	}
 
-	ok := true
+	var unreachableNodes []string
 	if unreachable != "NONE" {
-		unreachableNodes := strings.Split(unreachable, ",")
-		ok = b.server.UpdateHeartbeat(serverid, unreachableNodes, group)
+		unreachableNodes = strings.Split(unreachable, ",")
 	}
+	ok := b.server.UpdateHeartbeat(serverid, unreachableNodes, group)
 
 	if ok {
 		conn.Write([]byte("OK\n"))

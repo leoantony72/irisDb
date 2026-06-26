@@ -15,21 +15,35 @@ func (s *Server) NodeExit(serverID string) error {
 	masterRangeIndices := s.FindRangeIndexByServerID(serverID)
 
 	s.mu.Lock()
+	defer func() {
+		s.mu.Unlock()
+		if s.OnMetadataUpdated != nil {
+			s.OnMetadataUpdated()
+		}
+	}()
 	// promote the first replica to master
 	for _, idx := range masterRangeIndices {
 		slot := s.Metadata[idx]
 
-		if len(slot.Nodes) == 0 {
-			// no replicas to promote – you decide policy here
+		var firstReplica string
+		var firstReplicaIdx = -1
+		for i, id := range slot.Nodes {
+			if id != serverID {
+				firstReplica = id
+				firstReplicaIdx = i
+				break
+			}
+		}
+
+		if firstReplica == "" {
 			return fmt.Errorf(
-				"cannot remove %s: range %d-%d has no replicas to promote",
+				"cannot remove %s: range %d-%d has no other replicas to promote",
 				serverID, slot.Start, slot.End,
 			)
 		}
 
-		firstReplica := slot.Nodes[0]
 		slot.MasterID = firstReplica
-		slot.Nodes = slot.Nodes[1:] // remove promoted replica from replica list
+		slot.Nodes = append(slot.Nodes[:firstReplicaIdx], slot.Nodes[firstReplicaIdx+1:]...) // remove promoted replica from replica list
 	}
 
 	// remove this node from all the replica
@@ -68,6 +82,5 @@ func (s *Server) NodeExit(serverID string) error {
 	if s.Gossip != nil {
 		s.Gossip.DeadEvents <- serverID
 	}
-	s.mu.Unlock()
 	return nil
 }

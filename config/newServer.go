@@ -1,4 +1,4 @@
-﻿package config
+package config
 
 import (
 	"fmt"
@@ -77,6 +77,7 @@ func NewServer(config *utils.Config, group_name *string) *Server {
 		ResourceScore:     0,
 		UnreahableNodes:   make(map[string]time.Time),
 		SuspectLeaderMsg:  make(map[string]time.Time),
+		LastSeen:          make(map[string]time.Time),
 	}
 
 	// node.Nodes = append(node.Nodes, &Node{ServerID: name, Addr: addr})

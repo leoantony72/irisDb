@@ -406,6 +406,35 @@ func (s *Server) RequestMetadataSnapShot() error {
 	return nil
 }
 
+func (s *Server) IsSlotResponsible(slot uint16) bool {
+	idx := s.FindNodeIdx(slot)
+	if idx == -1 {
+		return false
+	}
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if idx < 0 || idx >= len(s.Metadata) {
+		return false
+	}
+	r := s.Metadata[idx]
+	if r == nil {
+		return false
+	}
+
+	if r.MasterID == s.ServerID {
+		return true
+	}
+	for _, id := range r.Nodes {
+		if id == s.ServerID {
+			return true
+		}
+	}
+	return false
+}
+
+
 // func (s *Server) BeginShutdown() {
 // 	s.ShutdownOnce.Do(func() {
 // 		log.Println("[INFO] Shutdown initiated")

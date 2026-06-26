@@ -367,5 +367,103 @@ func TestHandleCommand_DEL(t *testing.T) {
 	}
 }
 
+func TestHandleCommand_GET_Forwarded(t *testing.T) {
+	// Start a mock bus server that replies to GET.
+	lis, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen failed: %v", err)
+	}
+	defer lis.Close()
+
+	go func() {
+		conn, err := lis.Accept()
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+
+		reader := bufio.NewReader(conn)
+		cmd, _ := reader.ReadString('\n')
+
+		if strings.HasPrefix(cmd, "GET testkey") {
+			conn.Write([]byte("remoteval\n"))
+		} else if strings.HasPrefix(cmd, "GET nonexistent") {
+			conn.Write([]byte("NOTFOUND\n"))
+		} else {
+			conn.Write([]byte("ERR\n"))
+		}
+	}()
+
+	lisAddr := lis.Addr().String()
+	host, portStr, _ := net.SplitHostPort(lisAddr)
+	var port int
+	fmt.Sscanf(portStr, "%d", &port)
+
+	// Node's main port bumps by 10000 to reach the bus listener.
+	mainPort := port - 10000
+	if mainPort < 0 {
+		mainPort = 0
+	}
+	mainAddr := fmt.Sprintf("%s:%d", host, mainPort)
+
+	e := NewTestEngine(t)
+	s := NewTestServer("master-1", "127.0.0.1:8008")
+	// Add the remote node
+	AddNodeToServer(s, "remote-node", mainAddr, "default", 1.0)
+
+	// Set remote-node as the master of the slot range so GET will forward to it
+	s.Metadata[0].MasterID = "remote-node"
+	s.Metadata[0].Nodes = []string{} // No replicas
+
+	client, server := net.Pipe()
+	defer client.Close()
+	defer server.Close()
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		e.HandleCommand("GET testkey", server, s)
+	}()
+
+	reader := bufio.NewReader(client)
+	resp, err := reader.ReadString('\n')
+	if err != nil {
+		t.Fatalf("read response failed: %v", err)
+	}
+	<-done
+
+	resp = strings.TrimSpace(resp)
+	if resp != "remoteval" {
+		t.Errorf("expected remoteval, got %q", resp)
+	}
+}
+
+func TestReplicaFailureDetection(t *testing.T) {
+	s := NewTestServer("master-1", "127.0.0.1:8008")
+	// Add a replica node
+	AddNodeToServer(s, "replica-1", "127.0.0.1:8009", "default", 1.0)
+	// Seed a slot range with replica-1 as a replica node
+	s.Metadata[0].Nodes = []string{"replica-1"}
+
+	// Seed LastSeen for replica-1 to be in the past (over 45 seconds timeout)
+	s.LastSeen["replica-1"] = time.Now().Add(-50 * time.Second)
+
+	// Call CheckReplicaTimeouts. It should detect that replica-1 has failed and call NodeExit.
+	s.CheckReplicaTimeouts()
+
+	// Verify that replica-1 has been removed from s.Nodes and metadata replica nodes
+	nodes := s.GetNodesSnapshot()
+	for _, n := range nodes {
+		if n.ServerID == "replica-1" {
+			t.Error("expected replica-1 to be removed from nodes list")
+		}
+	}
+
+	metadata := s.GetServerMetadata()
+	if len(metadata) > 0 && len(metadata[0].Nodes) != 0 {
+		t.Errorf("expected metadata replica list to be empty, got %v", metadata[0].Nodes)
+	}
+}
+
 // Unused import guard
 var _ = config.ALIVE

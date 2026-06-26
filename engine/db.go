@@ -136,26 +136,41 @@ func (e *Engine) HandleCommand(cmd string, conn net.Conn, server *config.Server)
 				conn.Write([]byte("ERR Internal Error\n"))
 				return
 			}
-			rnum := rand.Intn(len(sr.Nodes))
-			masternode := sr.Nodes[rnum]
-			if masternode != server.ServerID {
+			candidates := append([]string{sr.MasterID}, sr.Nodes...)
+			rnum := rand.Intn(len(candidates))
+			readNode := candidates[rnum]
+			if readNode != server.ServerID {
 				//forward req to the read node address (bus port)
-				addr, ok := server.GetNodeAddr(masternode)
+				addr, ok := server.GetNodeAddr(readNode)
 				if !ok {
 					fmt.Println("ERR: internal server issue")
-					conn.Write([]byte("Err: Internal server issue"))
+					conn.Write([]byte("Err: Internal server issue\n"))
 					return
 				}
 				busAddr, _ := utils.BumpPort(addr, 10000)
 				fmt.Printf("GET FORWARD: ADDR: %s\n", busAddr)
 				Sconn, err := net.DialTimeout("tcp", busAddr, 10*time.Second)
 				if err != nil {
-					conn.Write([]byte("ERR INTERNAL ERROR"))
+					conn.Write([]byte("ERR INTERNAL ERROR\n"))
 					return
 				}
+				defer Sconn.Close()
+
 				//GET KEY VERSIONID
 				msg := fmt.Sprintf("GET %s %d\n", parts[1], server.GetClusterVersion())
-				Sconn.Write([]byte(msg))
+				if _, err := Sconn.Write([]byte(msg)); err != nil {
+					conn.Write([]byte("ERR INTERNAL ERROR\n"))
+					return
+				}
+
+				reader := bufio.NewReader(Sconn)
+				resp, err := reader.ReadBytes('\n')
+				if err != nil {
+					conn.Write([]byte("ERR INTERNAL ERROR\n"))
+					return
+				}
+				conn.Write(resp)
+				return
 			}
 			data, closer, err := e.Db.Get([]byte(parts[1]))
 			if err != nil {
@@ -290,3 +305,42 @@ func (e *Engine) HandleCommand(cmd string, conn net.Conn, server *config.Server)
 	}
 
 }
+
+func (e *Engine) CleanUnownedKeys(server *config.Server) {
+	if e.Db == nil {
+		return
+	}
+
+	iter, err := e.Db.NewIter(&pebble.IterOptions{})
+	if err != nil {
+		log.Printf("[ERROR] CleanUnownedKeys: failed to create iterator: %v", err)
+		return
+	}
+	defer iter.Close()
+
+	var keysToDelete [][]byte
+
+	for ok := iter.First(); ok; ok = iter.Next() {
+		key := append([]byte{}, iter.Key()...)
+		if string(key) == "config:server:metadata" {
+			continue
+		}
+
+		slot := utils.CalculateCRC16(key) % server.N
+		
+		// If the server is not responsible for this slot (as master or replica), delete it!
+		if !server.IsSlotResponsible(slot) {
+			keysToDelete = append(keysToDelete, key)
+		}
+	}
+
+	if len(keysToDelete) > 0 {
+		log.Printf("[INFO] CleanUnownedKeys: found %d keys that this server (%s) no longer owns. Deleting them.", len(keysToDelete), server.ServerID)
+		for _, key := range keysToDelete {
+			if err := e.Db.Delete(key, pebble.Sync); err != nil {
+				log.Printf("[WARN] CleanUnownedKeys: failed to delete key %q: %v", key, err)
+			}
+		}
+	}
+}
+

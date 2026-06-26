@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"iris/utils"
 	"log"
-	"math/rand"
 	"net"
+	"sort"
 	"strings"
 	"time"
 )
@@ -72,12 +72,33 @@ func (s *Server) RepairReplication(serverID string) map[string][]string {
 				s.ServerID, start, end, required, len(candidates))
 		}
 
-		// Shuffle candidates for load distribution
-		rand.Shuffle(len(candidates), func(i, j int) {
-			candidates[i], candidates[j] = candidates[j], candidates[i]
+		// Sort candidates by ResourceScore in descending order, with ID lexicographically as a tie-breaker.
+		type candidateInfo struct {
+			id    string
+			score float64
+		}
+		scoredCandidates := make([]candidateInfo, 0, len(candidates))
+		s.mu.RLock()
+		for _, id := range candidates {
+			score := 0.0
+			if node, ok := s.Nodes[id]; ok {
+				score = node.ResourceScore
+			}
+			scoredCandidates = append(scoredCandidates, candidateInfo{id: id, score: score})
+		}
+		s.mu.RUnlock()
+
+		sort.Slice(scoredCandidates, func(i, j int) bool {
+			if scoredCandidates[i].score != scoredCandidates[j].score {
+				return scoredCandidates[i].score > scoredCandidates[j].score
+			}
+			return scoredCandidates[i].id < scoredCandidates[j].id
 		})
 
-		newReplicas := candidates[:needed]
+		newReplicas := make([]string, 0, needed)
+		for i := 0; i < needed; i++ {
+			newReplicas = append(newReplicas, scoredCandidates[i].id)
+		}
 
 		log.Printf("[INFO] Server %s range %d-%d: need to add %d replicas", s.ServerID, start, end, needed)
 		for _, replicaID := range newReplicas {
