@@ -154,7 +154,7 @@ If no config file is passed, IrisDb will auto-allocate a port and start with def
 
 2. **Join with a Second Node (Node B)**:
    ```bash
-   ./irisdb -node_group group-1 -cluster_server "127.0.0.1:8001"
+   ./irisdb -node_group group-1 -cluster_server "127.0.0.1:18001"
    ```
    Node B connects to Node A, triggers the Two-Phase Join Protocol, splits the slot ranges, and begins handling its half of the cluster slot traffic.
 
